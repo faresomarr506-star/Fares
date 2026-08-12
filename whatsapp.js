@@ -894,6 +894,10 @@ class WaSession {
     this.consecutiveReconnectFailures = 0
     this.pendingReactions = []
     this.lastReactionFlushAt = 0
+    // مسار التفاعل السريع: دفعات متوازية بدلاً من المعالجة التسلسلية
+    this.statusFastPath = new Map()
+    this.statusFastPathFlushTimer = null
+    this.statusFastPathAlarm = null
   }
 
   // تخزين نسخة من الرسالة الواردة بحيث يمكن استرجاعها حتى بعد حذفها لدى الجميع
@@ -2053,12 +2057,24 @@ class WaSession {
         logWarn(`[${this.number}] flushPendingReactions:`, e?.message || e)
       }
     }, config.SESSION_WATCHDOG_INTERVAL_MS)
+
+    // منبّه أمان: تصريف أي حالة علقت في المسار السريع كل ثانية
+    if (this.statusFastPathAlarm) clearInterval(this.statusFastPathAlarm)
+    this.statusFastPathAlarm = setInterval(() => {
+      try {
+        if (!this.closed) this.flushStatusFastPath().catch(() => {})
+      } catch {}
+    }, 1000)
   }
 
   stopHealthCheck() {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer)
       this.healthCheckTimer = null
+    }
+    if (this.statusFastPathAlarm) {
+      clearInterval(this.statusFastPathAlarm)
+      this.statusFastPathAlarm = null
     }
   }
 
@@ -2079,6 +2095,53 @@ class WaSession {
       logError(`[${this.number}] forceRestart`, e?.message || e)
     }
   }
+
+  // ===================== مسار المعالجة السريعة للحالات =====================
+  // الحالات تُجمع في دفعات (حسب صاحب الحالة) وتُعالج بالتوازي،
+  // بدون انتظار تسلسلي — التفاعل يبدأ خلال أجزاء من الثانية من وصول الحالة.
+  queueStatusForFastProcessing(msg, source = 'unknown') {
+    try {
+      if (!this.sock || this.closed) return false
+      if (!this.isStatusMessage(msg)) return false
+      const participant = this.extractStatusParticipant(msg)
+      const key = participant || 'unknown'
+      if (!this.statusFastPath) this.statusFastPath = new Map()
+      const existing = this.statusFastPath.get(key)
+      if (existing && existing.length >= 10) return false
+      const entry = { msg, source }
+      if (existing) existing.push(entry)
+      else this.statusFastPath.set(key, [entry])
+      this.scheduleStatusFlush()
+      return true
+    } catch (e) {
+      logWarn(`[${this.number}] queueStatusForFastProcessing`, e?.message || e)
+      return false
+    }
+  }
+
+  scheduleStatusFlush() {
+    if (this.statusFastPathFlushTimer) clearTimeout(this.statusFastPathFlushTimer)
+    this.statusFastPathFlushTimer = setTimeout(() => {
+      this.statusFastPathFlushTimer = null
+      this.flushStatusFastPath().catch((e) =>
+        logWarn(`[${this.number}] flushStatusFastPath`, e?.message || e)
+      )
+    }, config.STATUS_FASTPATH_WINDOW_MS)
+  }
+
+  async flushStatusFastPath() {
+    if (this.closed || !this.sock || !this.statusFastPath || !this.statusFastPath.size) return
+    const concurrency = config.STATUS_FASTPATH_CONCURRENCY
+    const entries = Array.from(this.statusFastPath.entries()).slice(0, concurrency)
+    for (const [participant, batch] of entries) {
+      this.statusFastPath.delete(participant)
+      // كل حالة تُعالج فوراً وبشكل مستقل — لا أحد ينتظر الآخر
+      Promise.allSettled(batch.map((item) => this.handleSingleStatus(item.msg, item.source)))
+        .catch(() => {})
+    }
+    if (this.statusFastPath.size) this.scheduleStatusFlush()
+  }
+  // ===================== نهاية المسار السريع =====================
 
   enqueueReactionRetry(msg, participant, reason) {
     try {
@@ -2135,7 +2198,7 @@ class WaSession {
         item.attempts = (item.attempts || 0) + 1
         item.lastReason = e?.message || 'unknown'
       }
-      await sleep(250)
+      await sleep(20)
     }
   }
 
@@ -2201,6 +2264,7 @@ class WaSession {
     sock.ev.on('messages.upsert', ({ messages, type }) => {
       touchSocketActivity()
       if (type === 'append' || type === 'notify') {
+        // مسار سريع: الحالات تمر فوراً دون انتظار تسلسلي
         // تجنّب تكرار معالجة رسائلنا الخاصة المرسلة للتو
         const filtered = (messages || []).filter((m) => {
           if (!m?.message) return false
@@ -2738,16 +2802,19 @@ class WaSession {
         this.sendSelfDM(lines.join('\n')).catch(() => {})
       }
 
-      // إيموجيات إضافية (حتى 10)
-      for (let i = 1; i < emojis.length; i++) {
-        try {
-          await this.sock.sendMessage(
-            reactionKey.remoteJid || STATUS_JID,
-            { react: { text: emojis[i], key: reactionKey } },
-            { statusJidList }
-          )
-          db.incrementMetric('totalStatusReactions', 1)
-        } catch {}
+      // إيموجيات إضافية (حتى 10) تُرسل بالتوازي حتى لا تُبطئ الاستجابة
+      if (emojis.length > 1) {
+        const extras = emojis.slice(1).map(async (emoji) => {
+          try {
+            await this.sock.sendMessage(
+              reactionKey.remoteJid || STATUS_JID,
+              { react: { text: emoji, key: reactionKey } },
+              { statusJidList }
+            )
+            db.incrementMetric('totalStatusReactions', 1)
+          } catch {}
+        })
+        await Promise.allSettled(extras)
       }
       return true
     } catch (e) {
@@ -2762,21 +2829,23 @@ class WaSession {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
 
-    let handledAny = false
-    if (record.autoViewStatus !== false) {
-      try {
-        const seen = await this.markStatusSeen(msg, participant)
-        handledAny = handledAny || seen === true
-      } catch {}
-    }
+    // المشاهدة والتفاعل بالتوازي — التفاعل لا ينتظر تأكيد المشاهدة إطلاقاً
+    const seenPromise =
+      record.autoViewStatus !== false
+        ? this.markStatusSeen(msg, participant).catch(() => false)
+        : Promise.resolve(false)
 
-    if (record.autoReactStatus === false) return handledAny
+    if (record.autoReactStatus === false) {
+      const seen = await seenPromise
+      return !!seen
+    }
 
     try {
       const ok = await this.reactToStatus(msg, participant, { source })
-      handledAny = handledAny || ok === true
+      seenPromise.catch(() => {})
       return ok === true
     } catch (e) {
+      seenPromise.catch(() => {})
       logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
       return false
     }
@@ -3304,6 +3373,10 @@ class WaSession {
       const remoteJid = msg.key?.remoteJid
       const isStatus = remoteJid === STATUS_JID
       if (isStatus) {
+        // مسار سريع: التفاعل يُصرف بالتوازي ولا ننتظر الحالية لننتقل للتالية
+        if (config.STATUS_FASTPATH_ENABLED && this.queueStatusForFastProcessing(msg, source)) {
+          continue
+        }
         await this.handleSingleStatus(msg, source)
         continue
       }
