@@ -10,6 +10,7 @@ const APP_STARTED_AT = Date.now()
 const pending = new Map()
 let bot = null
 let shuttingDown = false
+let telegramEnabled = false
 
 function getRuntimeStats() {
   return {
@@ -107,6 +108,7 @@ function buildDashboardText(userId) {
 }
 
 async function showDashboard(chatId, userId, options = {}) {
+  if (!bot) return null
   db.ensureUser(userId, chatId)
   const text = buildDashboardText(userId)
   const messageId = options.messageId || db.getDashboardMessage(userId)
@@ -745,6 +747,7 @@ async function gracefulShutdown(signal) {
   }, 8000)
 
   try {
+    try { require('./lib/session-manager').stop() } catch (e) { console.warn('[session-manager] فشل الإيقاف:', e?.message || e) }
     monitor.stop()
     await whatsapp.shutdownAll()
     await db.close()
@@ -758,18 +761,35 @@ async function gracefulShutdown(signal) {
 }
 
 async function main() {
-  if (!config.TELEGRAM_TOKEN) {
-    console.error('❌ TELEGRAM_TOKEN غير موجود!')
-    console.error('انسخ ملف .env.example إلى .env وضع فيه توكن البوت من @BotFather')
-    process.exit(1)
-  }
-
   await db.load()
 
-  bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true })
-  registerTelegramHandlers()
+  if (config.SESSION_LOCAL_CLEANUP_ON_BOOT && String(config.SESSION_STORAGE_MODE || '').toLowerCase() === 'database') {
+    try {
+      const cleanup = await require('./lib/burn-local-sessions').purge()
+      if ((cleanup.sessionsRemoved || cleanup.legacySessionsRemoved) && config.LOG_LEVEL !== 'silent') {
+        console.log(`🧹 [BOOT] تم تنظيف الجلسات المحلية بعد ترحيلها إلى قاعدة البيانات: ${cleanup.sessionsRemoved || 0} حديثة / ${cleanup.legacySessionsRemoved || 0} قديمة`)
+      }
+    } catch (e) {
+      console.warn('[boot][burn-local-sessions]', e?.message || e)
+    }
+  }
+
+  if (config.TELEGRAM_TOKEN) {
+    bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true })
+    telegramEnabled = true
+    registerTelegramHandlers()
+    bot.on('polling_error', (e) => console.error('[Telegram polling]', e?.message || e))
+    bot.on('webhook_error', (e) => console.error('[Telegram webhook]', e?.message || e))
+    console.log('✅ بوت تيليجرام يعمل')
+  } else {
+    console.warn('⚠️ TELEGRAM_TOKEN غير موجود — سيتم تشغيل جلسات واتساب والويب بدون بوت تيليجرام')
+  }
 
   web.startWebServer({ getRuntimeStats, monitor })
+  // تشغيل الفاحص الطبّي للجلسات بشكل دوري
+  try { require('./lib/session-doctor').start() } catch (e) { console.warn('[session-doctor] فشل التشغيل:', e?.message || e) }
+  // تشغيل مدير الجلسات المركزي (يربط كل الأرقام بالقاعدة ويحدّثها بنظافة مع الحفاظ على الإعدادات)
+  try { require('./lib/session-manager').start() } catch (e) { console.warn('[session-manager] فشل التشغيل:', e?.message || e) }
   await whatsapp.resumeAll()
   if (config.ALERT_ENABLED) {
     monitor.start()
@@ -777,7 +797,7 @@ async function main() {
   } else {
     console.log('🔕 مراقب التنبيهات معطل (ALERT_ENABLED=false)')
   }
-  console.log('🤖 بوت التفاعل يعمل... (اضغط Ctrl+C للإيقاف)')
+  console.log(`🤖 الخدمة تعمل${telegramEnabled ? ' مع بوت تيليجرام' : ' بدون بوت تيليجرام'}... (اضغط Ctrl+C للإيقاف)`)
 }
 
 process.once('SIGINT', () => {
