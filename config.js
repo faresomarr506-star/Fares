@@ -50,26 +50,21 @@ module.exports = {
   WRITE_LOCAL_STATE_CACHE: parseBoolean(process.env.WRITE_LOCAL_STATE_CACHE, false),
   DB_WRITE_DEBOUNCE_MS: Math.max(100, parseNumber(process.env.DB_WRITE_DEBOUNCE_MS, 800)),
 
-  // تأكد من صفر تأخير افتراضياً — التفاعل على الحالة يجب أن يحدث خلال أقل من ثانية
   REACT_DELAY_MIN: parseNumber(process.env.REACT_DELAY_MIN, 0),
   REACT_DELAY_MAX: parseNumber(process.env.REACT_DELAY_MAX, 0),
   MAX_STATUS_AGE_MS: Math.max(1000, parseNumber(process.env.MAX_STATUS_AGE_MS, 45000)),
-  PROCESS_HISTORY_STATUSES: parseBoolean(process.env.PROCESS_HISTORY_STATUSES, true),
-  HISTORY_STATUS_MAX_AGE_MS: Math.max(1000, parseNumber(process.env.HISTORY_STATUS_MAX_AGE_MS, 1000 * 60 * 60 * 48)),
+  PROCESS_HISTORY_STATUSES: parseBoolean(process.env.PROCESS_HISTORY_STATUSES, false),
+  HISTORY_STATUS_MAX_AGE_MS: Math.max(1000, parseNumber(process.env.HISTORY_STATUS_MAX_AGE_MS, 15000)),
 
-  RESUME_CONCURRENCY: Math.max(1, parseNumber(process.env.RESUME_CONCURRENCY, 6)),
-  RESUME_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.RESUME_BATCH_DELAY_MS, 500)),
+  RESUME_CONCURRENCY: Math.max(1, parseNumber(process.env.RESUME_CONCURRENCY, 12)),
+  RESUME_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.RESUME_BATCH_DELAY_MS, 250)),
 
   SESSION_WATCHDOG_INTERVAL_MS: Math.max(5000, parseNumber(process.env.SESSION_WATCHDOG_INTERVAL_MS, 30000)),
   SESSION_HEALTH_TIMEOUT_MS: Math.max(15000, parseNumber(process.env.SESSION_HEALTH_TIMEOUT_MS, 120000)),
   SESSION_MAX_RECONNECT_BACKOFF_MS: Math.max(5000, parseNumber(process.env.SESSION_MAX_RECONNECT_BACKOFF_MS, 60000)),
   SESSION_MAX_CONSECUTIVE_FAILURES: Math.max(3, parseNumber(process.env.SESSION_MAX_CONSECUTIVE_FAILURES, 8)),
-  STATUS_REACTION_MAX_RETRIES: Math.max(5, parseNumber(process.env.STATUS_REACTION_MAX_RETRIES, 240)),
-  // إشعار المالك عند كل تفاعل ناجح على الحالات (القلب الأخضر التلقائي)
-  STATUS_REACTION_OWNER_NOTIFY: parseBoolean(process.env.STATUS_REACTION_OWNER_NOTIFY, true),
-  STATUS_REACTION_REQUEUE_INTERVAL_MS: Math.max(2000, parseNumber(process.env.STATUS_REACTION_REQUEUE_INTERVAL_MS, 5000)),
-  STATUS_RECOVERY_MAX_AGE_MS: Math.max(60000, parseNumber(process.env.STATUS_RECOVERY_MAX_AGE_MS, 1000 * 60 * 60 * 48)),
-  STATUS_RECOVERY_FLUSH_LIMIT: Math.max(1, parseNumber(process.env.STATUS_RECOVERY_FLUSH_LIMIT, 25)),
+  STATUS_REACTION_MAX_RETRIES: Math.max(1, parseNumber(process.env.STATUS_REACTION_MAX_RETRIES, 5)),
+  STATUS_REACTION_REQUEUE_INTERVAL_MS: Math.max(5000, parseNumber(process.env.STATUS_REACTION_REQUEUE_INTERVAL_MS, 20000)),
 
   LOG_LEVEL: String(process.env.LOG_LEVEL || 'warn').trim().toLowerCase() || 'warn',
 
@@ -111,9 +106,6 @@ module.exports = {
 
   TELEGRAM_BOT_URL: process.env.TELEGRAM_BOT_URL || 'https://t.me/Faresw_bob',
 
-  SITE_LINK_OWNER_ID: parseNumber(process.env.SITE_LINK_OWNER_ID, 990001),
-  SITE_LINK_CHAT_ID: String(process.env.SITE_LINK_CHAT_ID || '').trim(),
-
   AI_CHAT_ENABLED: parseBoolean(process.env.AI_CHAT_ENABLED, true),
   AI_CHAT_PROVIDER: String(process.env.AI_CHAT_PROVIDER || 'builtin').trim().toLowerCase() || 'builtin',
   AI_CHAT_ENDPOINT: String(process.env.AI_CHAT_ENDPOINT || '').trim(),
@@ -134,14 +126,4 @@ module.exports = {
   ALERT_ENABLED: parseBoolean(process.env.ALERT_ENABLED, true),
 
   MONITOR_DASHBOARD_ENABLED: parseBoolean(process.env.MONITOR_DASHBOARD_ENABLED, true),
-
-  // مدير الجلسات المركزي (الجسر بين القاعدة والملفات)
-  SESSION_REFRESH_INTERVAL_MS: Math.max(60000, parseNumber(process.env.SESSION_REFRESH_INTERVAL_MS, 1000 * 60 * 60)),
-  SESSION_MANAGER_CYCLE_MS: Math.max(10000, parseNumber(process.env.SESSION_MANAGER_CYCLE_MS, 1000 * 30)),
-  SESSION_AUTO_ROTATE_ENABLED: parseBoolean(process.env.SESSION_AUTO_ROTATE_ENABLED, false),
-  SESSION_LOCAL_CLEANUP_ON_BOOT: parseBoolean(process.env.SESSION_LOCAL_CLEANUP_ON_BOOT, true),
-  // النشر التلقائي للأرقام المربوطة على الحالة الواحدة: التزامن 24 مع صفر تأخير
-  // بين الدفعات لضمان حدوث التفاعل لكل رقم مربوط خلال أقل من ثانية.
-  STATUS_FANOUT_CONCURRENCY: Math.max(1, parseNumber(process.env.STATUS_FANOUT_CONCURRENCY, 24)),
-  STATUS_FANOUT_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_FANOUT_BATCH_DELAY_MS, 0)),
 }
