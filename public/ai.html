@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>المساعد الذكي | Fares Bot</title>
+    <meta
+      name="description"
+      content="واجهة عربية حديثة للمساعد الذكي داخل موقع Fares Bot للإجابة عن أسئلة الربط، بوابة المالك، العملات اليومية، والإعدادات."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="ai-body">
+    <div class="aurora-bg">
+      <div class="aurora aurora-1"></div>
+      <div class="aurora aurora-2"></div>
+      <div class="aurora aurora-3"></div>
+      <div class="aurora aurora-4"></div>
+    </div>
+    <div class="bg-grid"></div>
+    <div class="bg-dots"></div>
+    <div class="ai-particles" id="aiParticles"></div>
+
+    <header class="topbar shell ai-topbar">
+      <div class="brand">
+        <div class="brand-avatar-wrap">
+          <div class="brand-glow"></div>
+          <img class="brand-avatar" src="/hero-image.jpg" alt="Fares Bot" />
+        </div>
+        <div class="brand-text">
+          <strong>Fares Bot AI</strong>
+          <p>مساعد عربي حديث داخل الموقع — مستوحى من واجهات الدردشة الزجاجية العصرية مع الحفاظ على هوية المشروع الأصلية.</p>
+        </div>
+      </div>
+      <nav class="top-actions">
+        <a class="btn btn-soft" href="/">العودة للصفحة الرئيسية</a>
+        <a class="btn btn-secondary" href="/panel">بوابة المالك</a>
+      </nav>
+    </header>
+
+    <main class="shell ai-layout">
+      <section class="ai-hero card">
+        <div class="ai-hero-grid">
+          <div class="ai-hero-copy">
+            <span class="eyebrow"><span class="dot"></span> مساعد الموقع المحدث</span>
+            <h1>واجهة عربية ذكية تساعدك على فهم واستخدام <span class="gradient-text">Fares Bot</span></h1>
+            <p>
+              اسأل عن ربط الرقم، كود الاقتران، بوابة المالك، العملات اليومية، متجر المزايا، أو إعدادات الرقم المربوط.
+              تم تحديث هذه الواجهة لتكون عربية بالكامل وبأسلوب حديث مع الحفاظ على الحقوق الأصلية للمشروع.
+            </p>
+            <div class="hero-highlights">
+              <div class="highlight-chip"><span class="chip-spark"></span> واجهة عربية كاملة</div>
+              <div class="highlight-chip"><span class="chip-spark"></span> تجربة دردشة حديثة</div>
+              <div class="highlight-chip"><span class="chip-spark"></span> متوافقة مع هوية Fares Bot</div>
+            </div>
+          </div>
+
+          <div class="ai-preview-card glass-card-modern">
+            <div class="ai-avatar-core">✦</div>
+            <div class="typing-visual-modern">
+              <span></span><span></span><span></span>
+            </div>
+            <strong>المساعد الذكي</strong>
+            <p>أرسل سؤالك بالعربية وسيجيبك مباشرة عن خدمات الموقع والبوت.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="ai-chat-shell card">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">الدردشة الذكية</span>
+            <h2>اسأل المساعد الآن</h2>
+            <p>يمكنك السؤال عن أي جزء في المشروع أو عن طريقة استخدام الموقع بعد التحديث.</p>
+          </div>
+        </div>
+
+        <div class="ai-chat-grid">
+          <aside class="ai-side-panel">
+            <div class="mini-note-box">
+              <strong>اقتراحات سريعة</strong>
+              <div class="ai-suggestion-list">
+                <button class="ai-suggestion" data-prompt="كيف أربط رقم واتساب جديد؟">كيف أربط رقم واتساب جديد؟</button>
+                <button class="ai-suggestion" data-prompt="ما هي بوابة المالك؟">ما هي بوابة المالك؟</button>
+                <button class="ai-suggestion" data-prompt="كيف أستلم العملات اليومية؟">كيف أستلم العملات اليومية؟</button>
+                <button class="ai-suggestion" data-prompt="كيف أغير كلمة مرور الرقم المربوط؟">كيف أغير كلمة مرور الرقم المربوط؟</button>
+                <button class="ai-suggestion" data-prompt="ما هي المزايا الموجودة في الموقع بعد التحديث؟">ما هي المزايا الموجودة في الموقع بعد التحديث؟</button>
+              </div>
+            </div>
+
+            <div class="mini-note-box">
+              <strong>ملاحظات</strong>
+              <p>
+                هذه الصفحة جزء من التحديث الجديد للموقع، وتمت إضافة تجربة محادثة عربية حديثة مع الاحتفاظ بحقوق Fares Bot الأصلية.
+              </p>
+            </div>
+          </aside>
+
+          <section class="ai-conversation-card">
+            <div id="aiMessages" class="ai-messages">
+              <article class="ai-msg ai-msg-bot">
+                <div class="ai-msg-badge">Fares Bot AI</div>
+                <div class="ai-msg-bubble">
+                  أهلاً بك 👋
+                  <br />
+                  أنا مساعد الموقع. اسألني عن الربط، بوابة المالك، العملات اليومية، أو المزايا الجديدة بعد تحديث المشروع.
+                </div>
+              </article>
+            </div>
+
+            <form id="aiChatForm" class="ai-chat-form" autocomplete="off">
+              <label class="full ai-input-wrap">
+                <span class="sr-only">رسالتك</span>
+                <textarea id="aiPrompt" name="prompt" rows="4" maxlength="1200" placeholder="اكتب سؤالك هنا بالعربية..."></textarea>
+              </label>
+              <div class="ai-form-actions">
+                <p id="aiChatStatus" class="form-status"></p>
+                <button class="btn btn-primary" type="submit">
+                  <span class="btn-icon">✦</span>
+                  <span>إرسال</span>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer shell">
+      <div class="footer-copy">
+        <strong>جميع الحقوق محفوظة © Fares Bot</strong>
+        <p>تم تحديث صفحة المساعد بأسلوب عربي حديث مستوحى من واجهات دردشة زجاجية عصرية مع الحفاظ على هوية المشروع الأصلية وحقوقه.</p>
+      </div>
+      <div class="footer-links">
+        <a href="/">الرئيسية</a>
+        <a href="/panel">بوابة المالك</a>
+      </div>
+    </footer>
+
+    <script src="/ai.js"></script>
+  </body>
+</html>

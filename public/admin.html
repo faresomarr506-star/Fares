@@ -1,1 +1,49 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>لوحة المطور | Fares Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="admin-body">
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-grid"></div>
 
+    <main class="shell admin-layout">
+      <section class="card admin-login-card">
+        <span class="eyebrow">المطور فقط</span>
+        <h1>لوحة الرد على التعليقات</h1>
+        <p>أدخل رمز الإدارة للرد على تعليقات الموقع من داخل هذه الصفحة.</p>
+        <form id="adminLoginForm" class="comment-form single-col">
+          <label class="full">
+            <span>رمز الإدارة</span>
+            <input type="password" name="token" placeholder="SITE_ADMIN_TOKEN" required />
+          </label>
+          <div class="form-actions full">
+            <button class="btn btn-primary" type="submit">دخول</button>
+            <p id="adminLoginStatus" class="form-status"></p>
+          </div>
+        </form>
+        <a class="btn btn-soft" href="/">العودة للموقع</a>
+      </section>
+
+      <section class="card admin-comments-card hidden" id="adminPanel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">التعليقات</span>
+            <h2>إدارة الردود</h2>
+          </div>
+          <button id="adminLogout" class="btn btn-outline" type="button">تسجيل خروج</button>
+        </div>
+        <div id="adminCommentsFeed" class="comments-feed empty-state">جاري التحميل...</div>
+      </section>
+    </main>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

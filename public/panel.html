@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>لوحة المالك | Fares Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="panel-body">
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-grid"></div>
+
+    <header class="topbar shell panel-topbar">
+      <div class="brand">
+        <div class="brand-avatar-wrap">
+          <img class="brand-avatar" src="/hero-image.jpg" alt="Fares Bot" />
+        </div>
+        <div>
+          <strong id="panelBrandName">Fares Bot</strong>
+          <p>بوابة المالك — العملات اليومية، سجل التفاعلات، وإدارة الرقم المربوط</p>
+        </div>
+      </div>
+      <nav class="top-actions">
+        <a id="panelIndexLink" class="btn btn-soft" href="/">الصفحة الرئيسية</a>
+        <a id="panelBotLink" class="btn btn-primary" href="#" target="_blank" rel="noreferrer">بوت تيليجرام</a>
+      </nav>
+    </header>
+
+    <main class="shell panel-layout panel-layout-extended">
+      <section class="card panel-login-card" id="panelLoginCard">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">دخول المالك</span>
+            <h1>تسجيل دخول الرقم المربوط</h1>
+            <p id="panelWelcomeText">أدخل الرقم المربوط وكلمة المرور لفتح لوحة التحكم الكاملة الخاصة به.</p>
+          </div>
+        </div>
+        <form id="panelLoginForm" class="comment-form single-col" autocomplete="off">
+          <label class="full">
+            <span>الرقم المربوط</span>
+            <input id="panelNumberInput" type="text" inputmode="numeric" name="number" placeholder="مثال: 96777XXXXXXX" required />
+          </label>
+          <label class="full">
+            <span>كلمة المرور</span>
+            <input id="panelPasswordInput" type="password" name="password" placeholder="كلمة المرور" required />
+            <small id="panelPasswordHint" class="hint-line"></small>
+          </label>
+          <div class="form-actions full">
+            <button class="btn btn-primary" type="submit">تسجيل الدخول</button>
+            <p id="panelLoginStatus" class="form-status"></p>
+          </div>
+        </form>
+        <div class="panel-login-help">
+          <strong>💡 كلمة المرور الافتراضية</strong>
+          <p>إذا لم تغيّرها من قبل، فالكلمة الافتراضية هي نفس الرقم بصيغته الدولية بدون +.</p>
+        </div>
+      </section>
+
+      <section class="panel-main hidden" id="panelMain">
+        <div class="welcome-marquee-shell">
+          <div class="welcome-marquee">
+            <div class="welcome-track">
+              <span>✨ أهلاً وسهلاً في موقع الإعدادات ✨</span>
+              <span>💚 أهلاً وسهلاً في موقع الإعدادات 💙</span>
+              <span>🟣 أهلاً وسهلاً في موقع الإعدادات 🟡</span>
+              <span>✨ أهلاً وسهلاً في موقع الإعدادات ✨</span>
+            </div>
+          </div>
+        </div>
+        <nav class="panel-anchor-rail card">
+          <a href="#panelWalletSection">المحفظة</a>
+          <a href="#panelReactionSection">التفاعلات</a>
+          <a href="#panelStoreSection">المتجر</a>
+          <a href="#panelPairSection">ربط رقم</a>
+          <a href="#panelSecuritySection">الأمان</a>
+          <a href="#panelSettingsGrid">الإعدادات</a>
+        </nav>
+        <div class="panel-header card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">لوحة الرقم</span>
+              <h2><span id="panelHeaderNumber">—</span> <span id="panelTierBadge" class="tier-badge">STANDARD</span></h2>
+              <p>
+                الحالة الحالية: <span id="panelStatusLabel" class="status-pill">—</span>
+                · إيموجي التفاعل: <span id="panelEmojiLabel">❤️</span>
+              </p>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-outline" id="panelLogoutBtn" type="button">تسجيل الخروج</button>
+            </div>
+          </div>
+          <div class="panel-header-actions">
+            <button class="btn btn-secondary" id="panelSaveBtn" type="button">💾 حفظ الإعدادات</button>
+            <button class="btn btn-soft" id="panelReloadBtn" type="button">🔄 إعادة التحميل</button>
+            <span class="form-status" id="panelSaveStatus"></span>
+          </div>
+        </div>
+
+        <section class="dashboard-two-col">
+          <section class="card wallet-card" id="panelWalletSection">
+            <div class="section-head compact">
+              <div>
+                <span class="eyebrow">المحفظة اليومية</span>
+                <h2>رصيد العملات</h2>
+              </div>
+              <button id="claimDailyBtn" class="btn btn-primary" type="button">🎁 طلب 50 عملة اليوم</button>
+            </div>
+            <div class="wallet-grid">
+              <article class="stat-card accent-green"><span>الرصيد الحالي</span><strong id="walletBalance">0</strong></article>
+              <article class="stat-card accent-gold"><span>إجمالي المستلم</span><strong id="walletClaimed">0</strong></article>
+              <article class="stat-card accent-red"><span>إجمالي المصروف</span><strong id="walletSpent">0</strong></article>
+              <article class="stat-card accent-blue"><span>الاستلام القادم</span><strong id="walletNextClaim">متاح الآن</strong></article>
+            </div>
+            <div class="wallet-note-row">
+              <p class="hint-line" id="walletClaimHint">كل رقم مربوط يحصل على 50 عملة مجانية كل 24 ساعة.</p>
+              <p class="form-status" id="walletStatus"></p>
+            </div>
+            <div class="section-head compact subhead-gap">
+              <div>
+                <span class="eyebrow">المزايا النشطة</span>
+                <h3>الاشتراكات الحالية</h3>
+              </div>
+            </div>
+            <div id="activeFeaturesList" class="feature-badges empty-state">لا توجد مزايا مفعلة حالياً.</div>
+            <div class="section-head compact subhead-gap">
+              <div>
+                <span class="eyebrow">سجل العمليات</span>
+                <h3>آخر الحركات</h3>
+              </div>
+            </div>
+            <div id="walletTransactions" class="wallet-transactions empty-state">لا توجد عمليات حتى الآن.</div>
+          </section>
+
+          <section class="card status-visibility-card" id="panelReactionSection">
+            <div class="section-head compact">
+              <div>
+                <span class="eyebrow">حالة التفاعل</span>
+                <h2>مؤشر ظهور التفاعل</h2>
+                <p>إذا نجح تفاعل الرقم المربوط على حالة جديدة سيظهر المؤشر والقلب باللون الأخضر هنا بشكل واضح.</p>
+              </div>
+            </div>
+            <div class="reaction-hero" id="reactionHero">
+              <div class="reaction-heart" id="reactionHeart">💚</div>
+              <div>
+                <div class="reaction-indicator-row">
+                  <span class="reaction-dot" id="reactionDot"></span>
+                  <strong id="reactionIndicatorText">لا يوجد تفاعل حديث</strong>
+                </div>
+                <p id="reactionLatestMeta" class="hint-line">سيظهر هنا آخر تفاعل ناجح على الحالات.</p>
+              </div>
+            </div>
+            <div class="section-head compact subhead-gap">
+              <div>
+                <span class="eyebrow">السجل المباشر</span>
+                <h3>آخر تفاعلات الحالات</h3>
+              </div>
+              <small id="reactionTotalCount">0 عملية</small>
+            </div>
+            <div id="statusReactionsList" class="reaction-log empty-state">لا توجد تفاعلات حالات مسجلة بعد.</div>
+          </section>
+        </section>
+
+        <section class="card coin-store-card" id="panelStoreSection">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow">استخدام العملات</span>
+              <h2>متجر المزايا المشروعة داخل البوت</h2>
+              <p>يمكنك صرف العملات لفتح مزايا خاصة، أوامر مدفوعة، وسجل أوسع أو ترقية VIP داخل نفس المشروع.</p>
+            </div>
+          </div>
+          <div id="storeOffers" class="store-grid"></div>
+          <p id="storeStatus" class="form-status"></p>
+        </section>
+
+        <section class="card panel-pair-card" id="panelPairSection">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow">ربط رقم جديد</span>
+              <h2>إصدار كود اقتران لرقم آخر</h2>
+              <p>يصدر الكود من داخل الرقم الحالي دون التأثير على جلسته الحالية.</p>
+            </div>
+          </div>
+          <form id="panelPairForm" class="comment-form">
+            <label class="full">
+              <span>رقم الهدف بالصيغة الدولية</span>
+              <input id="panelPairNumber" type="text" name="number" inputmode="numeric" placeholder="مثال: 96777XXXXXXXX" required />
+            </label>
+            <div class="form-actions full">
+              <button class="btn btn-primary" type="submit">🔗 إصدار كود الاقتران</button>
+              <p id="panelPairStatus" class="form-status"></p>
+            </div>
+          </form>
+          <div id="panelPairCodeBox" class="panel-pair-result hidden">
+            <strong>كود الاقتران:</strong>
+            <code id="panelPairCode">—</code>
+          </div>
+        </section>
+
+        <section class="card panel-password-card" id="panelSecuritySection">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow">الأمان</span>
+              <h2>تغيير كلمة المرور</h2>
+              <p>كلمة المرور هذه تخص هذا الرقم فقط وتُستخدم في تسجيل الدخول إلى الموقع.</p>
+            </div>
+          </div>
+          <form id="panelPasswordForm" class="comment-form">
+            <label>
+              <span>كلمة المرور الحالية</span>
+              <input id="panelCurrentPassword" type="password" name="current" required />
+            </label>
+            <label>
+              <span>كلمة المرور الجديدة</span>
+              <input id="panelNewPassword" type="password" name="new" minlength="4" required />
+            </label>
+            <div class="form-actions full">
+              <button class="btn btn-secondary" type="submit">🔑 تحديث كلمة المرور</button>
+              <p id="panelPasswordStatus" class="form-status"></p>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel-settings card" id="panelSettingsGrid"></section>
+
+        <footer class="panel-footer">
+          <p>كل العمليات مرتبطة بنفس الرقم المربوط: الإعدادات، الرصيد، السجل، والمزايا النشطة، وتُطبق مباشرة بعد الحفظ.</p>
+        </footer>
+      </section>
+    </main>
+
+    <script src="/panel.js"></script>
+  </body>
+</html>

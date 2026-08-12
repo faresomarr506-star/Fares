@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Fares Bot — لوحة مراقبة الأرقام</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, "Segoe UI", Tahoma, Arial; background: #0d1117; color: #e6edf3; }
+  header { padding: 18px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .badge { background: #1f6feb; color: #fff; padding: 4px 10px; border-radius: 16px; font-size: 12px; font-weight: bold; }
+  main { padding: 18px 24px; max-width: 1100px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 14px; }
+  .card.ok { border-left: 4px solid #2ea043; }
+  .card.warn { border-left: 4px solid #d29922; background: linear-gradient(180deg, #161b22, #1f1d10); }
+  .card.down { border-left: 4px solid #f85149; background: linear-gradient(180deg, #161b22, #261615); }
+  .num { font-size: 16px; font-weight: bold; margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+  .pill { background: #21262d; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+  .danger { color: #ff7b72; }
+  .good { color: #3fb950; }
+  .warn-text { color: #d29922; }
+  .stamp { font-size: 11px; color: #7d8590; }
+  .empty { text-align: center; padding: 60px 10px; color: #7d8590; }
+  button { background: #1f6feb; color: #fff; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+  button.secondary { background: #21262d; color: #c9d1d9; }
+  .top { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .errbox { background: #3d1517; color: #ff7b72; padding: 10px 14px; border-radius: 8px; font-family: monospace; font-size: 12px; }
+  .legend { font-size: 12px; color: #7d8590; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ لوحة مراقبة أرقام واتساب</h1>
+  <span class="badge" id="total">0 رقم</span>
+</header>
+<main>
+  <div class="legend">
+    🟢 متصل &nbsp; 🟡 توقف (لا استجابة) &nbsp; 🔴 فصل نهائي (انقطع عن واتساب)
+    <br/>آخر تحديث: <span id="lastUpdate">—</span>
+  </div>
+  <div class="top">
+    <button onclick="load()">تحديث الآن</button>
+    <button class="secondary" onclick="toggleAuto()">الإيقاف التلقائي: <span id="autoState">مفعّل</span></button>
+    <button class="secondary" onclick="testAlert()">اختبار تنبيه تيليجرام</button>
+  </div>
+  <div id="errors"></div>
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty" style="display:none;">لا توجد أرقام مربوطة أو لم تُسجَّل في المراقب بعد.</div>
+</main>
+<script>
+let auto = true;
+let timer = null;
+
+async function load() {
+  try {
+    const res = await fetch('/api/monitor/state', { headers: { 'x-admin-token': localStorage.getItem('monitor-token') || '' } });
+    const json = await res.json();
+    if (!json.ok) {
+      document.getElementById('errors').innerHTML = '<div class="errbox">تعذر جلب البيانات. إن رفضت بسبب رمز الإدارة، افتح الموقع الرئيسي وسجّل دخولك أولاً.</div>';
+      return;
+    }
+    render(json.states || [], json.alerts || []);
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('ar-EG');
+    if (json.alerts && json.alerts.length) {
+      document.getElementById('errors').innerHTML = '<div class="errbox">آخر أخطاء إرسال تنبيه: ' + json.alerts.map(e => '[' + e.reason + '] ' + (e.extra?.body?.description || e.extra?.status || '')).join(' • ') + '</div>';
+    } else {
+      document.getElementById('errors').innerHTML = '';
+    }
+  } catch (e) {
+    document.getElementById('errors').innerHTML = '<div class="errbox">' + e.message + '</div>';
+  }
+}
+
+function render(states, alerts) {
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  document.getElementById('total').textContent = states.length + ' رقم مربوط';
+  if (!states.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  grid.innerHTML = states.map(s => {
+    const kind = s.discSince ? 'down' : (s.idleMs > 180000 ? 'warn' : 'ok');
+    const heart = s.discSince
+      ? `🔴 <span class="danger">فصل منذ ${format(s.discSinceMs)}</span>`
+      : (s.idleMs > 180000
+        ? `🟡 <span class="warn-text">توقف ${format(s.idleMs)}</span>`
+        : `🟢 <span class="good">متصل — آخر نشاط منذ ${format(s.idleMs)}</span>`);
+    const code = s.lastStatusCode ? `<span class="pill">${s.lastStatusCode}</span>` : '';
+    const force = s.lastForceRestart ? `<span class="pill" style="background:#3d1517;color:#ff7b72">إعادة قسرية: ${s.lastForceRestart.reason}</span>` : '';
+    const reconn = s.reconnectAttempts ? `<span class="pill">محاولات إعادة: ${s.reconnectAttempts}</span>` : '';
+    return `<div class="card ${kind}">
+      <div class="num">📱 ${escapeHtml(s.number)}</div>
+      <div class="row">${heart} ${code} ${force} ${reconn}</div>
+      <div class="row">
+        <span class="pill">إيموجي: ${escapeHtml(s.emoji || '❤️')}</span>
+        <span class="pill">انضم للقناة: ${s.joinedChannel ? '✅' : '❌'}</span>
+      </div>
+      <div class="row stamp">آخر تفاعل: ${s.lastReactionAgo || '—'} | آخر تنبيه: ${s.lastAlertAgo || 'لم يُرسَل'} | آخر استعادة: ${s.lastRecoveryAgo || '—'}</div>
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(s) { return String(s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
+function format(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const s = Math.round(ms/1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s/60); const rs = s%60;
+  if (m < 60) return m + 'm ' + rs + 's';
+  const h = Math.floor(m/60); const rm = m%60;
+  return h + 'h ' + rm + 'm';
+}
+
+function toggleAuto() {
+  auto = !auto;
+  document.getElementById('autoState').textContent = auto ? 'مفعّل' : 'موقوف';
+  if (auto) startTimer(); else clearInterval(timer);
+}
+
+async function testAlert() {
+  if (!localStorage.getItem('monitor-token')) {
+    const t = prompt('أدخل رمز الإدارة SITE_ADMIN_TOKEN لاختبار التنبيه:');
+    if (!t) return;
+    localStorage.setItem('monitor-token', t);
+  }
+  const res = await fetch('/api/monitor/test-alert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': localStorage.getItem('monitor-token') || '' },
+    body: JSON.stringify({ text: '✅ هذه رسالة اختبار من لوحة مراقبة Fares Bot' })
+  });
+  const j = await res.json();
+  alert(j.ok ? '✅ تم إرسال التنبيه إلى تيليجرام' : '❌ فشل: ' + (j.error || JSON.stringify(j)));
+}
+
+function startTimer() { clearInterval(timer); timer = setInterval(load, 7000); load(); }
+startTimer();
+</script>
+</body>
+</html>
