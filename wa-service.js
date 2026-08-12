@@ -32,16 +32,6 @@ async function gracefulShutdown(signal) {
 
 async function main() {
   await db.load()
-  if (config.SESSION_LOCAL_CLEANUP_ON_BOOT && String(config.SESSION_STORAGE_MODE || '').toLowerCase() === 'database') {
-    try {
-      const cleanup = await require('./lib/burn-local-sessions').purge()
-      if ((cleanup.sessionsRemoved || cleanup.legacySessionsRemoved) && config.LOG_LEVEL !== 'silent') {
-        console.log(`🧹 [WA SERVICE] تم تنظيف الجلسات المحلية بعد نقل الاعتماد إلى MongoDB: ${cleanup.sessionsRemoved || 0} حديثة / ${cleanup.legacySessionsRemoved || 0} قديمة`)
-      }
-    } catch (e) {
-      console.warn('[wa-service][burn-local-sessions] فشل التنظيف:', e?.message || e)
-    }
-  }
   try { require('./lib/session-doctor').start() } catch (e) { console.warn('[wa-service][session-doctor] فشل التشغيل:', e?.message || e) }
   try { require('./lib/session-manager').start() } catch (e) { console.warn('[wa-service][session-manager] فشل التشغيل:', e?.message || e) }
   await whatsapp.resumeAll()

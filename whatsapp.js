@@ -18,12 +18,9 @@ const mediaDownloader = require('./media-downloader')
 
 const STATUS_JID = 'status@broadcast'
 const sessions = new Map()
-const linkedStatusBoostCache = new Map()
 const ownJidsByNumber = new Map()
 let latestVersionPromise = null
 let notifyFn = null
-// مرجع لتوليد معرّفات الجلسات بشكل موحّد بين الوحدات
-const sessionKeys = require('./lib/session-keys')
 
 const LOG_LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 }
 
@@ -56,22 +53,6 @@ function setNotifier(fn) {
   notifyFn = fn
 }
 
-// حفظ آخر نشاط للـ session في MongoDB بحيث يبقى الـ monitor و session-doctor
-// قادرَين على تمييز الأرقام الحقيقية حتى لو لم يصلها حدث بعد restart.
-async function heartbeat(number, userId, status = 'alive', extra = {}) {
-  try {
-    if (!db.isRemoteSessionStorageEnabled || !db.isRemoteSessionStorageEnabled()) return
-    const sid = sessionKeys.authSessionIdFor(userId, number)
-    await db.applyWaAuthMutations(sid, [{
-      fileName: '__heartbeat__.json',
-      value: { t: Date.now(), status, ...extra },
-      scope: sid,
-    }])
-  } catch (e) {
-    // لا تكسر شيء — هذه نبضة داعمة فقط
-  }
-}
-
 async function notify(chatId, text) {
   if (!notifyFn || !chatId) return
   try {
@@ -89,55 +70,6 @@ const legacyAuthSessionIdFor = (number) => `wa_session_${normalizePhone(number)}
 const authFolderFor = (userId, number) => path.join(config.SESSIONS_DIR, sessionIdentity(userId, number))
 const legacyAuthFolderFor = (number) => path.join(config.SESSIONS_DIR, normalizePhone(number))
 const authCredsFileFor = (userId, number) => path.join(authFolderFor(userId, number), 'creds.json')
-const AUTH_FILE_PREFIXES_TO_KEEP = ['creds.json', 'app-state-sync-key-', 'pre-key-', 'identity-key-', 'sender-key-']
-const AUTH_FILE_PREFIXES_TO_PRUNE = ['app-state-sync-version-', 'app-state-sync-versions-', 'libsignal_']
-
-function isKeepableAuthFile(file) {
-  const name = String(file || '').trim()
-  return AUTH_FILE_PREFIXES_TO_KEEP.some((prefix) => name === prefix || name.startsWith(prefix))
-}
-
-function isPrunableAuthFile(file) {
-  const name = String(file || '').trim()
-  return AUTH_FILE_PREFIXES_TO_PRUNE.some((prefix) => name === prefix || name.startsWith(prefix))
-}
-
-async function migrateLocalAuthToRemote(userId, number) {
-  try {
-    if (!db.isRemoteSessionStorageEnabled || !db.isRemoteSessionStorageEnabled()) return { migrated: 0 }
-    const folders = Array.from(new Set([authFolderFor(userId, number), legacyAuthFolderFor(number)]))
-    const mutations = []
-    const seen = new Set()
-    for (const folder of folders) {
-      const exists = await fs.promises.access(folder).then(() => true).catch(() => false)
-      if (!exists) continue
-      const entries = await fs.promises.readdir(folder).catch(() => [])
-      for (const file of entries) {
-        if (isPrunableAuthFile(file)) {
-          try { await fs.promises.rm(path.join(folder, file), { force: true }) } catch {}
-          continue
-        }
-        if (!isKeepableAuthFile(file) || seen.has(file)) continue
-        try {
-          const raw = await fs.promises.readFile(path.join(folder, file), 'utf8')
-          if (!raw) continue
-          mutations.push({
-            fileName: file,
-            value: JSON.parse(raw, BufferJSON.reviver),
-            scope: typeof db.getSessionScope === 'function' ? db.getSessionScope(userId, number) : `sessions/${Number(userId)}/${normalizePhone(number)}`,
-          })
-          seen.add(file)
-        } catch {}
-      }
-    }
-    if (!mutations.length) return { migrated: 0 }
-    await db.applyWaAuthMutations(authSessionIdFor(userId, number), mutations)
-    return { migrated: mutations.length }
-  } catch (e) {
-    logWarn(`[${normalizePhone(number)}] migrateLocalAuthToRemote:`, e?.message || e)
-    return { migrated: 0, error: e?.message || String(e) }
-  }
-}
 
 function useDatabaseOnlySessionStorage() {
   return config.SESSION_STORAGE_MODE === 'database' && db.isRemoteSessionStorageEnabled()
@@ -209,10 +141,6 @@ async function usePersistentAuthState(userId, number) {
     ? db.getSessionScope(userId, number)
     : `sessions/${Number(userId)}/${normalizePhone(number)}`
   const dbOnly = useDatabaseOnlySessionStorage()
-
-  if (dbOnly && db.isRemoteSessionStorageEnabled()) {
-    await migrateLocalAuthToRemote(userId, number)
-  }
 
   if (!dbOnly) {
     await fs.promises.mkdir(authFolderFor(userId, number), { recursive: true })
@@ -856,7 +784,6 @@ const PHONE_SYNONYMS = {
   alwaysOnline: ['alwaysonline', 'اونلاين', 'دائماً', 'alwaysOnline'],
   autoStatusRead: ['autostatusread', 'مشاهدة', 'statusread', 'autoStatusRead'],
   autoStatusReact: ['autostatusreact', 'تفاعل', 'statusreact', 'autoStatusReact'],
-  statusViewBoost: ['statusviewboost', 'booststatus', 'رفعالمشاهدات', 'زيادةمشاهداتالحالة', 'statusViewBoost'],
   statusReactionNotice: ['statusreactionnotice', 'إشعارالتفاعل', 'statusReactionNotice'],
   keepDeletedStatus: ['keepdeletedstatus', 'حفظ.محذوف', 'keepDeletedStatus'],
   ghostMode: ['ghost', 'شبح', 'ghostMode'],
@@ -925,7 +852,6 @@ class WaSession {
     this.pairingRequested = false
     this.pairingAttempts = 0
     this.isNewPairing = false
-    this.deferAutoPairingCode = false
     this.resumeNotificationPending = false
     this.channelJoined = false
     this.suppressLoggedOutCleanup = false
@@ -940,16 +866,12 @@ class WaSession {
     this.recentIncomingMessages = new Map()
     this.groupWarnings = new Map()
     this.privateMessageDeleteIds = new Map()
-    this.handledRevokeEvents = new Map()
-    this.handledViewOnceForwards = new Map()
     // كاش مؤقت لمحتوى الرسائل الواردة (لإعادة إرسال المحذوف منها)
     this.deletedMessagesArchive = new Map()
     this.deletedStatusArchive = new Map()
     // حقول جديدة لجعل الجلسة ذاتية الإصلاح في حال توقف التفاعل
     this.healthCheckTimer = null
     this.lastSocketPong = Date.now()
-    this.lastHeartbeatAt = Date.now()
-    this.lastEventAt = Date.now()
     this.consecutiveReconnectFailures = 0
     this.pendingReactions = []
     this.lastReactionFlushAt = 0
@@ -1483,99 +1405,19 @@ class WaSession {
     return true
   }
 
-  pruneSmallCache(map, maxEntries = 800, keepEntries = 500) {
-    if (!map || typeof map.size !== 'number' || map.size <= maxEntries) return
-    const removeCount = Math.max(0, map.size - keepEntries)
-    const keys = Array.from(map.keys()).slice(0, removeCount)
-    for (const key of keys) map.delete(key)
-  }
-
-  buildRevokeDedupKey(kind, evictedKey) {
-    const rawRemoteJid = String(evictedKey?.remoteJid || '').trim()
-    const rawRemoteJidAlt = String(evictedKey?.remoteJidAlt || '').trim()
-    const id = String(evictedKey?.id || '').trim()
-    const participant = pickPreferredUserJid(evictedKey?.participantAlt, evictedKey?.participantPn, evictedKey?.senderPn, evictedKey?.participant)
-    if (!id) return ''
-    if (kind === 'status' || rawRemoteJid === STATUS_JID || rawRemoteJidAlt === STATUS_JID) {
-      return `status:${participant || rawRemoteJidAlt || rawRemoteJid}:${id}`
-    }
-    const remoteJid = pickPreferredUserJid(rawRemoteJidAlt, rawRemoteJid)
-    return `message:${remoteJid || rawRemoteJid || 'unknown'}:${id}`
-  }
-
-  claimHandledEvent(map, key, ttlMs = 90_000) {
-    if (!map || !key) return false
-    const now = Date.now()
-    const expiry = map.get(key) || 0
-    if (expiry > now) return false
-    map.set(key, now + ttlMs)
-    this.pruneSmallCache(map)
-    return true
-  }
-
-  async sendRecoveredMediaPayload(entry, titleText, captionPrefix) {
-    if (!entry?.hasMedia) return false
-    const media = await this.downloadCachedMedia(entry)
-    if (!media?.buffer) return false
-    const extraCaption = entry?.text ? `\n\n📝 الوصف:\n${entry.text}` : ''
-    const caption = `${captionPrefix || titleText}${extraCaption}`.trim()
-    const fileBase = String(entry?.messageId || Date.now())
-    let payload = null
-    if (media.type === 'image') {
-      payload = { image: media.buffer, caption }
-    } else if (media.type === 'video') {
-      payload = { video: media.buffer, caption, mimetype: media.mimetype || 'video/mp4', fileName: `view-once-${fileBase}.mp4` }
-    } else if (media.type === 'audio') {
-      payload = { audio: media.buffer, mimetype: media.mimetype || 'audio/ogg', ptt: false, fileName: `audio-${fileBase}.ogg` }
-    } else if (media.type === 'document') {
-      payload = { document: media.buffer, mimetype: media.mimetype || 'application/octet-stream', fileName: media.fileName || `file-${fileBase}` }
-    } else if (media.type === 'sticker') {
-      payload = { sticker: media.buffer }
-    }
-    if (!payload) return false
-    await this.sendSelfDM(titleText)
-    await this.sendSelfDMMessagePayload(payload)
-    return true
-  }
-
-  async forwardViewOnceMessageToSelf(msg, reasonText = 'تم حفظ محتوى العرض لمرة واحدة كنسخة عادية قابلة للتنزيل.') {
-    try {
-      const rawRemoteJid = String(msg?.key?.remoteJid || '').trim()
-      if (!rawRemoteJid || rawRemoteJid === STATUS_JID) return false
-      const messageId = String(msg?.key?.id || '').trim()
-      if (!messageId) return false
-      const remoteJid = pickPreferredUserJid(msg?.key?.remoteJidAlt, rawRemoteJid) || rawRemoteJid
-      const dedupKey = `viewonce:${remoteJid}:${messageId}`
-      if (!this.claimHandledEvent(this.handledViewOnceForwards, dedupKey, 120_000)) return false
-      const entry = this.getCachedMessage(remoteJid, messageId) || this.findCachedMessageById(messageId)
-      if (!entry || !entry.hasMedia) return false
-      const senderLabel = entry.senderDisplayName || entry.senderNumber || 'مرسل غير معروف'
-      const title = `👁️‍🗨️ ${reasonText}\n👤 المرسل: ${senderLabel}`
-      const captionPrefix = '📦 نسخة عادية محفوظة من رسالة عرض لمرة واحدة'
-      return await this.sendRecoveredMediaPayload(entry, title, captionPrefix)
-    } catch (e) {
-      logWarn(`[${this.number}] forwardViewOnceMessageToSelf:`, e?.message || e)
-      return false
-    }
-  }
-
   // استدعاء عند رصد حذف رسالة من المحادثات (بالإضافة للمجموعات الموجودة)
   async handleDeletedMessageRevoke(evictedKey) {
     try {
-      const rawRemoteJid = String(evictedKey?.remoteJid || '').trim()
-      const rawRemoteJidAlt = String(evictedKey?.remoteJidAlt || '').trim()
-      if (rawRemoteJid === STATUS_JID || rawRemoteJidAlt === STATUS_JID) return
-      const remoteJid = pickPreferredUserJid(rawRemoteJidAlt, rawRemoteJid)
+      const remoteJid = pickPreferredUserJid(evictedKey?.remoteJidAlt, evictedKey?.remoteJid)
       const id = String(evictedKey?.id || '').trim()
       if (!remoteJid || !id) return
+      if (remoteJid === STATUS_JID) return
+      const entry = this.getCachedMessage(remoteJid, id) || this.findCachedMessageById(id)
+      if (!entry) return
       const record = db.getNumber(this.userId, this.number)
       const settings = record?.settings || {}
       if (settings.antiDeleteMessages !== 'on' && settings.antiDelete !== 'on') return
-      const dedupKey = this.buildRevokeDedupKey('message', evictedKey)
-      if (!this.claimHandledEvent(this.handledRevokeEvents, dedupKey, 120_000)) return
-      const entry = this.getCachedMessage(remoteJid, id) || this.findCachedMessageById(id)
-      if (!entry) return
-      await this.resendDeletedMessageToSelf(entry, 'تم تفعيل استرجاع الرسائل المحذوفة بالخاص على رقمك.')
+      await this.resendDeletedMessageToSelf(entry, 'تم تفعيل منع حذف الرسائل على رقمك.')
     } catch (e) {
       logWarn(`[${this.number}] handleDeletedMessageRevoke:`, e?.message || e)
     }
@@ -1584,18 +1426,15 @@ class WaSession {
   // استدعاء عند رصد حذف حالة (ستوري)
   async handleDeletedStatusRevoke(evictedKey) {
     try {
-      const rawRemoteJid = String(evictedKey?.remoteJid || '').trim()
-      const rawRemoteJidAlt = String(evictedKey?.remoteJidAlt || '').trim()
+      const remoteJid = String(evictedKey?.remoteJid || '').trim()
       const id = String(evictedKey?.id || '').trim()
       const participant = pickPreferredUserJid(evictedKey?.participantAlt, evictedKey?.participantPn, evictedKey?.senderPn, evictedKey?.participant)
-      if ((rawRemoteJid != STATUS_JID && rawRemoteJidAlt != STATUS_JID) || !id) return
+      if (remoteJid !== STATUS_JID || !id) return
+      const entry = (participant ? this.getCachedStatus(participant, id) : null) || this.findCachedStatusById(id)
+      if (!entry) return
       const record = db.getNumber(this.userId, this.number)
       const settings = record?.settings || {}
       if (settings.keepDeletedStatus !== 'on') return
-      const dedupKey = this.buildRevokeDedupKey('status', evictedKey)
-      if (!this.claimHandledEvent(this.handledRevokeEvents, dedupKey, 120_000)) return
-      const entry = (participant ? this.getCachedStatus(participant, id) : null) || this.findCachedStatusById(id)
-      if (!entry) return
       await this.resendDeletedStatusToSelf(entry, 'تم تفعيل حفظ الحالات على رقمك.')
     } catch (e) {
       logWarn(`[${this.number}] handleDeletedStatusRevoke:`, e?.message || e)
@@ -1974,7 +1813,7 @@ class WaSession {
     const text = extractTextFromMessage(msg)
 
     if (settings.antiViewOnce === 'on' && hasViewOncePayload(msg?.message)) {
-      await this.forwardViewOnceMessageToSelf(msg)
+      return this.applyProtectionAction(groupJid, participantJid, msg, 'رسائل العرض مرة واحدة', settings)
     }
 
     if (settings.antiBug === 'on' && isLikelyBugPayload(msg, text)) {
@@ -2143,23 +1982,12 @@ class WaSession {
         }
       } catch {}
     }, 25_000)
-    // نبضة DB كل دقيقتين لتأكيد بقاء الرقم حيًا في وعي الـ monitor
-    this.heartbeatDbTimer = setInterval(() => {
-      try {
-        this.lastHeartbeatAt = Date.now()
-        heartbeat(this.number, this.userId, this.closed ? 'closed' : 'alive')
-      } catch {}
-    }, 120_000)
   }
 
   stopKeepAlive() {
     if (this.keepAliveTimer) {
       clearInterval(this.keepAliveTimer)
       this.keepAliveTimer = null
-    }
-    if (this.heartbeatDbTimer) {
-      clearInterval(this.heartbeatDbTimer)
-      this.heartbeatDbTimer = null
     }
   }
 
@@ -2179,16 +2007,15 @@ class WaSession {
           )
           return
         }
-        const now = Date.now()
-        const idle = now - (this.lastSocketPong || 0)
-        const hasBacklog = this.pendingReactions.some((item) => now - Number(item.firstQueuedAt || 0) >= config.STATUS_REACTION_REQUEUE_INTERVAL_MS * 2)
-        if (wsState === 1 && hasBacklog && idle > config.SESSION_HEALTH_TIMEOUT_MS) {
-          logWarn(`[${this.number}] watchdog: توجد حالات معلقة منذ ${Math.round(idle / 1000)}s — إعادة تشغيل الجلسة`)
-          this.forceRestart('pending-status-stall').catch((e) =>
+        const idle = Date.now() - (this.lastSocketPong || 0)
+        if (wsState === 1 && idle > config.SESSION_HEALTH_TIMEOUT_MS) {
+          logWarn(`[${this.number}] watchdog: لا استجابة منذ ${Math.round(idle / 1000)}s — إعادة تشغيل الجلسة`)
+          this.forceRestart('idle-timeout').catch((e) =>
             logError(`[${this.number}] watchdog restart`, e?.message || e)
           )
           return
         }
+        if (wsState === 1) this.lastSocketPong = Date.now()
       } catch (e) {
         logWarn(`[${this.number}] health check tick:`, e?.message || e)
       }
@@ -2250,27 +2077,20 @@ class WaSession {
     if (!this.sock || this.closed) return
     if (!this.pendingReactions.length) return
     const now = Date.now()
-    if (now - (this.lastReactionFlushAt || 0) < config.STATUS_REACTION_REQUEUE_INTERVAL_MS) return
+    if (now - (this.lastReactionFlushAt || 0) < 5000) return
     this.lastReactionFlushAt = now
     const record = db.getNumber(this.userId, this.number)
     if (!record) { this.pendingReactions = []; return }
-    if (record.autoReactStatus === false && record.autoViewStatus === false) return
-    const snapshot = this.pendingReactions.slice(0, config.STATUS_RECOVERY_FLUSH_LIMIT)
+    if (record.autoReactStatus === false) return
+    const snapshot = this.pendingReactions.slice(0, 10)
     for (const item of snapshot) {
       if ((item.attempts || 0) >= config.STATUS_REACTION_MAX_RETRIES) {
         this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
         continue
       }
       try {
-        if (!this.isFreshStatus(item.msg, 'retry')) {
-          this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
-          continue
-        }
-        if (db.hasStatusReaction?.(this.userId, this.number, item.msg?.key?.id, item.participant)) {
-          this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
-          continue
-        }
-        const ok = await this.processStatusNow(item.msg, item.participant, 'retry')
+        if (!this.isFreshStatus(item.msg, 'retry')) continue
+        const ok = await this.reactToStatus(item.msg, item.participant, { source: 'retry' })
         if (ok) {
           this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
         } else {
@@ -2280,7 +2100,7 @@ class WaSession {
         item.attempts = (item.attempts || 0) + 1
         item.lastReason = e?.message || 'unknown'
       }
-      await sleep(250)
+      await sleep(400)
     }
   }
 
@@ -2299,7 +2119,6 @@ class WaSession {
     const resumed = options?.resumed === true
     this.closed = false
     this.isNewPairing = options?.isNewPairing === true
-    this.deferAutoPairingCode = options?.deferAutoPairingCode === true
     this.resumeNotificationPending = resumed
 
     const { state, saveCreds } = await usePersistentAuthState(this.userId, this.number)
@@ -2326,13 +2145,6 @@ class WaSession {
     this.sock = sock
     const generation = ++this.socketGeneration
 
-    const touchSocketActivity = () => {
-      const now = Date.now()
-      this.lastSocketPong = now
-      this.lastHeartbeatAt = now
-      this.lastEventAt = now
-    }
-
     sock.ev.on('creds.update', async () => {
       try {
         await saveCreds()
@@ -2342,12 +2154,10 @@ class WaSession {
     })
 
     sock.ev.on('connection.update', (u) => {
-      touchSocketActivity()
       this.onConnectionUpdate(u, sock, generation).catch((e) => logError(`[${this.number}] connection.update`, e.message))
     })
 
     sock.ev.on('messages.upsert', ({ messages, type }) => {
-      touchSocketActivity()
       if (type === 'append' || type === 'notify') {
         // تجنّب تكرار معالجة رسائلنا الخاصة المرسلة للتو
         const filtered = (messages || []).filter((m) => {
@@ -2440,7 +2250,6 @@ class WaSession {
     } catch {}
 
     sock.ev.on('messaging-history.set', ({ messages, syncType, contacts, chats }) => {
-      touchSocketActivity()
       try {
         this.rememberContacts(Array.isArray(contacts) ? contacts : [])
         this.rememberContacts(Array.isArray(chats) ? chats : [], { chatName: '' })
@@ -2525,7 +2334,7 @@ class WaSession {
       if (!registered) db.setStatus(this.userId, this.number, 'pairing')
       else db.setStatus(this.userId, this.number, 'connecting')
 
-      if (!registered && !this.pairingRequested && !this.deferAutoPairingCode) {
+      if (!registered && !this.pairingRequested) {
         this.pairingRequested = true
         setTimeout(async () => {
           try {
@@ -2564,15 +2373,7 @@ class WaSession {
       this.startHealthCheck()
       this.consecutiveReconnectFailures = 0
       this.lastSocketPong = Date.now()
-      this.lastHeartbeatAt = this.lastSocketPong
-      this.lastEventAt = this.lastSocketPong
       db.setStatus(this.userId, this.number, 'connected')
-      if (useDatabaseOnlySessionStorage()) {
-        clearLocalAuthFolder(this.userId, this.number).catch(() => {})
-      }
-      setTimeout(() => {
-        this.flushPendingReactions().catch((e) => logWarn(`[${this.number}] warm flush`, e?.message || e))
-      }, 1200)
       const emoji = db.getEmoji(this.userId, this.number) || '❤️'
       const resumedSession = this.resumeNotificationPending === true
 
@@ -2728,22 +2529,13 @@ class WaSession {
     return !!msg && !msg.key?.fromMe && msg.key?.remoteJid === STATUS_JID
   }
 
-  getStatusFreshnessWindow(source) {
-    const tag = String(source || '').toLowerCase()
-    if (tag.startsWith('history:')) return config.HISTORY_STATUS_MAX_AGE_MS
-    if (tag.startsWith('retry') || tag.startsWith('recovery') || tag.startsWith('resume')) {
-      return config.STATUS_RECOVERY_MAX_AGE_MS
-    }
-    return config.MAX_STATUS_AGE_MS
-  }
-
   isFreshStatus(msg, source) {
     const isHistory = String(source || '').startsWith('history:')
     if (isHistory && !config.PROCESS_HISTORY_STATUSES) return false
     const ts = getMessageTimestampMs(msg)
     if (!ts) return true
     const age = Date.now() - ts
-    const maxAge = this.getStatusFreshnessWindow(source)
+    const maxAge = isHistory ? config.HISTORY_STATUS_MAX_AGE_MS : config.MAX_STATUS_AGE_MS
     return age <= maxAge
   }
 
@@ -2797,50 +2589,18 @@ class WaSession {
 
   async markStatusSeen(msg, participant) {
     if (!this.sock || !msg?.key?.id) return false
-    const statusParticipant = participant || this.extractStatusParticipant(msg) || msg.key?.participant || msg.key?.participantAlt || msg?.participant
-    if (!statusParticipant || statusParticipant === STATUS_JID) return false
-    const id = String(msg.key.id || '').trim()
     const key = {
       ...msg.key,
       remoteJid: STATUS_JID,
-      participant: statusParticipant,
-      participantAlt: msg.key?.participantAlt || msg?.participantAlt,
-      participantPn: msg.key?.participantPn || msg?.participantPn,
-      senderPn: msg.key?.senderPn || msg?.senderPn,
-      fromMe: false,
+      participant: participant || msg.key?.participant,
     }
-    const jidList = Array.from(new Set([
-      statusParticipant,
-      msg.key?.participantAlt || msg?.participantAlt,
-      msg.key?.participantPn || msg?.participantPn,
-      msg.key?.senderPn || msg?.senderPn,
-      msg.key?.participant,
-    ].filter(Boolean)))
     try {
-      if (typeof this.sock.sendReceipt === 'function') {
-        await this.sock.sendReceipt(STATUS_JID, statusParticipant, [id], 'read', { statusJidList: jidList })
-      } else {
-        await this.sock.readMessages([key], { statusJidList: jidList })
-      }
+      await this.sock.readMessages([key])
       db.incrementMetric('totalStatusViews', 1)
       return true
     } catch (e) {
-      try {
-        await this.sock.readMessages([key])
-        db.incrementMetric('totalStatusViews', 1)
-        return true
-      } catch (fallbackError) {
-        if (typeof this.sock.sendReceipt === 'function') {
-          try {
-            await this.sock.sendReceipt(STATUS_JID, statusParticipant, [id], 'read')
-            db.incrementMetric('totalStatusViews', 1)
-            return true
-          } catch (lastError) { /* fallthrough */ }
-        }
-        try { this.enqueueReactionRetry(msg, statusParticipant, fallbackError?.message || e?.message || 'read-failed') } catch {}
-        logWarn(`[${this.number}] فشل تعليم الحالة كمشاهدة:`, fallbackError?.message || e?.message || fallbackError || e)
-        return false
-      }
+      logWarn(`[${this.number}] فشل تعليم الحالة كمشاهدة:`, e.message)
+      return false
     }
   }
 
@@ -2854,11 +2614,8 @@ class WaSession {
       .split(/[\s,،]+/)
       .map((s) => s.trim())
       .filter(Boolean)
-      .slice(0, 9)
+      .slice(0, 10)
     if (!emojis.length) emojis.push('❤️')
-    // إيموجي القلب الأخضر 💚 يُلحق تلقائياً مع كل تفاعل — هذا ما يجعل العلامة تتحول
-    // إلى لون أخضر في واتساب ويؤكد للملاك أن الرقم المربوط قد تفاعل فعلاً.
-    if (!emojis.includes('💚')) emojis.push('💚')
 
     const statusParticipant = participant || this.extractStatusParticipant(msg)
     if (!statusParticipant || statusParticipant === STATUS_JID) return false
@@ -2871,16 +2628,6 @@ class WaSession {
     }
     const mainEmoji = opts?.emoji || emojis[0]
 
-    const reactJidList = Array.from(new Set([
-      statusParticipant,
-      msg.key?.participantAlt,
-      msg?.participantAlt,
-      msg.key?.participantPn,
-      msg?.participantPn,
-      msg.key?.senderPn,
-      msg?.senderPn,
-      msg.key?.participant,
-    ].filter(Boolean))).slice(0, 20)
     try {
       await this.sock.sendMessage(
         STATUS_JID,
@@ -2890,7 +2637,9 @@ class WaSession {
             key: reactionKey,
           },
         },
-        reactJidList.length ? { statusJidList: reactJidList } : {}
+        {
+          statusJidList: Array.from(new Set([statusParticipant])),
+        }
       )
       db.incrementMetric('totalStatusReactions', 1)
       const statusOwner = this.getResolvedContactInfo(statusParticipant)
@@ -2904,12 +2653,7 @@ class WaSession {
         source: opts.source === 'retry' ? 'retry' : 'auto',
       })
 
-      // 1) تنبيه المالك داخل الرقم المربوط بتفاعل ناجح على الحالة (القلب الأخضر)
-      if (
-        config.STATUS_REACTION_OWNER_NOTIFY !== false &&
-        (db.hasActiveFeature?.(this.userId, this.number, 'reaction_alerts_7d') === true ||
-          settings.notifyOnStatusReaction !== false)
-      ) {
+      if (db.hasActiveFeature?.(this.userId, this.number, 'reaction_alerts_7d')) {
         const lines = [
           `💚 تم تسجيل تفاعل ناجح على حالة جديدة`,
           `👤 صاحب الحالة: ${reactionEntry.participantLabel || reactionEntry.participantNumber || 'غير معروف'}`,
@@ -2918,7 +2662,6 @@ class WaSession {
         ]
         this.sendSelfDM(lines.join('\n')).catch(() => {})
       }
-      try { monitor.feedReaction(this.number, this.userId, this.chatId, true) } catch {}
 
       // إيموجيات إضافية (حتى 10)
       for (let i = 1; i < emojis.length; i++) {
@@ -2926,7 +2669,7 @@ class WaSession {
           await this.sock.sendMessage(
             STATUS_JID,
             { react: { text: emojis[i], key: reactionKey } },
-            reactJidList.length ? { statusJidList: reactJidList } : {}
+            { statusJidList: [statusParticipant] }
           )
           db.incrementMetric('totalStatusReactions', 1)
         } catch {}
@@ -2940,61 +2683,42 @@ class WaSession {
     }
   }
 
-  async processStatusNow(msg, participant, source = 'live') {
+  async processStatusNow(msg, participant) {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
-
-    const settings = record.settings || {}
-    const shouldView = record.autoViewStatus !== false && !this.isGhostModeEnabled(settings)
-    const shouldReact = record.autoReactStatus !== false
-    if (!shouldView && !shouldReact) return false
-
-    let handledAny = false
-    let reacted = false
-
-    if (shouldView) {
-      const viewed = await this.markStatusSeen(msg, participant).catch(() => false)
-      handledAny = handledAny || viewed === true
+    let reactionResult = null
+    const tasks = []
+    if (record.autoViewStatus !== false) {
+      tasks.push(this.markStatusSeen(msg, participant).catch(() => false))
     }
-
-    if (shouldReact) {
-      reacted = await this.reactToStatus(msg, participant, { source })
-        .catch((e) => {
-          logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
-          return false
-        })
-      handledAny = handledAny || reacted === true
-
-      if (reacted && shouldView) {
-        await sleep(120)
-        await this.markStatusSeen(msg, participant).catch(() => false)
-      }
+    if (record.autoReactStatus !== false) {
+      tasks.push(
+        this.reactToStatus(msg, participant, { source: 'live' })
+          .then((ok) => { reactionResult = ok; return ok })
+          .catch((e) => {
+            reactionResult = false
+            logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
+            return false
+          })
+      )
     }
-
-    if (!shouldReact) return handledAny
-    return reacted === true
+    if (!tasks.length) return false
+    await Promise.allSettled(tasks)
+    return reactionResult === true
   }
 
   async handleSingleStatus(msg, source = 'unknown') {
     if (!this.isStatusMessage(msg)) return
     if (!this.isFreshStatus(msg, source)) return
 
-    const participant = this.extractStatusParticipant(msg)
     const dedupKey = this.buildStatusDedupKey(msg)
     if (this.handledStatusIds.has(dedupKey)) return
-
-    if (db.hasStatusReaction?.(this.userId, this.number, msg?.key?.id, participant)) {
-      this.handledStatusIds.set(dedupKey, Date.now())
-      this.pruneHandledStatuses()
-      return
-    }
-
     this.handledStatusIds.set(dedupKey, Date.now())
     this.pruneHandledStatuses()
 
+    const participant = this.extractStatusParticipant(msg)
     try {
-      const mode = String(source || '').startsWith('history:') ? 'resume-history' : 'live'
-      const ok = await this.processStatusNow(msg, participant, mode)
+      const ok = await this.processStatusNow(msg, participant)
       if (!ok) {
         logWarn(`[${this.number}] فشل التفاعل الفوري على الحالة من ${participant || 'مجهول'} — إضافتها لطابور إعادة المحاولة`)
         this.enqueueReactionRetry(msg, participant, 'init-failed')
@@ -3003,10 +2727,6 @@ class WaSession {
       logError(`[${this.number}] status handler`, e?.message || e)
       this.enqueueReactionRetry(msg, participant, e?.message || 'exception')
     }
-
-    maybeBoostLinkedStatusViews(this, msg, participant).catch((e) =>
-      logWarn(`[${this.number}] linked status fanout`, e?.message || e)
-    )
   }
 
   // معالجة أوامر المالك داخل الرقم المربوط
@@ -3089,7 +2809,6 @@ class WaSession {
         `emoji: ${s.statusCustomReact || '❤️'}`,
         `autoStatusRead: ${s.autoStatusRead || 'on'}`,
         `autoStatusReact: ${s.autoStatusReact || 'on'}`,
-        `statusViewBoost: ${s.statusViewBoost || 'off'}`,
         `autoRead: ${s.autoRead || 'off'}`,
         `autoReact: ${s.autoReact || 'off'}`,
         `antiCall: ${s.antiCall || 'off'}`,
@@ -3444,18 +3163,6 @@ class WaSession {
       return true
     }
 
-    if (cmd === 'statusboost' || cmd === 'booststatus' || cmd === 'رفع_المشاهدات' || cmd === 'زيادة_مشاهدات_الحالة') {
-      const val = String(rest || '').trim().toLowerCase()
-      if (!['on', 'off', 'تشغيل', 'إيقاف'].includes(val)) {
-        await reply(`❌ القيم المتاحة: on | off`)
-        return true
-      }
-      const norm = (val === 'تشغيل') ? 'on' : (val === 'إيقاف') ? 'off' : val
-      db.setPhoneSetting(this.userId, this.number, 'statusViewBoost', norm)
-      await reply(`✅ تعزيز مشاهدة الحالة من الأرقام المربوطة الآن: ${norm}\nℹ️ تعمل الزيادة الفعلية فقط من الجلسات المربوطة النشطة التي تستطيع رؤية الحالة.`)
-      return true
-    }
-
     if (cmd === 'autoreact' || cmd === 'تفاعل') {
       const val = String(rest || '').trim().toLowerCase()
       if (!['on', 'off', 'تشغيل', 'إيقاف'].includes(val)) {
@@ -3483,7 +3190,6 @@ class WaSession {
       `${prefix}مساعدة - عرض قائمة الأوامر`,
       `${prefix}إعدادات - عرض إعدادات الرقم`,
       `${prefix}إيموجي ❤️ - تغيير إيموجي التفاعل`,
-      `${prefix}statusboost on|off - تفعيل أو إيقاف تعزيز مشاهدة الحالة`,
       `${prefix}الوضع خاص|عام - تغيير وضع الرقم`,
       `${prefix}بادئة ! - تغيير بادئة الأوامر`,
       `${prefix}ضبط <الإعداد> <القيمة> - تحديث إعداد`,
@@ -3541,10 +3247,6 @@ class WaSession {
             await this.handleDeletedMessageRevoke(revokeTarget)
             continue
           }
-        }
-        const privateSettings = db.getPhoneSettings(this.userId, this.number) || {}
-        if (privateSettings.antiViewOnce === 'on' && hasViewOncePayload(msg?.message)) {
-          await this.forwardViewOnceMessageToSelf(msg)
         }
         const handledPrivateProtection = await this.handlePrivateMessageProtection(msg)
         if (handledPrivateProtection) continue
@@ -3661,32 +3363,16 @@ async function resumeAll() {
 
   logInfo(`♻️ بدء استعادة ${restorable.length} جلسة واتساب محفوظة...`)
 
-  // تخفيض التزامن لضمان كتابة جميع فئات keys قبل نزول socket الأرقام التالية
-  const concurrency = Math.max(2, Math.min(Number(config.RESUME_CONCURRENCY) || 6, 8))
-  const delay = Math.max(400, Number(config.RESUME_BATCH_DELAY_MS) || 500)
-
   await runInBatches(
     restorable,
-    concurrency,
-    delay,
+    config.RESUME_CONCURRENCY,
+    config.RESUME_BATCH_DELAY_MS,
     async (item) => {
       await startSession(item.userId, item.number, item.chatId, { resumed: true }).catch((e) =>
         logError(`[استعادة ${item.number}]`, e.message)
       )
-      try { await heartbeat(item.number, item.userId, 'resumed') } catch {}
     }
   )
-
-  // فحص طبّي نهائي بعد اكتمال الاستعادة
-  try {
-    const doctor = require('./lib/session-doctor')
-    const report = await doctor.runOnce()
-    if (config.LOG_LEVEL === 'debug' || config.LOG_LEVEL === 'info') {
-      logInfo(`[session-doctor] بعد الاستعادة: حي=${report.alive}, مريض=${report.sick}/${report.checked}`)
-    }
-  } catch (e) {
-    logWarn('[session-doctor]', e?.message || e)
-  }
 }
 
 async function broadcastToWhatsapp(text) {
@@ -3725,115 +3411,10 @@ function getActiveSessionsCount() {
   return sessions.size
 }
 
-function isSessionActive(userId, number) {
-  const id = sessionKeys.authSessionIdFor(userId, number)
-  const legacy = sessionKeys.legacyAuthSessionIdFor(number)
-  return sessions.has(id) || sessions.has(legacy)
-}
-
 async function sendLinkedNumberMessage(userId, number, text) {
   const ses = getSession(userId, number)
   if (!ses) return false
   return ses.sendSelfDM(String(text || '').trim())
-}
-
-async function requestSessionPairingCode(userId, number, chatId, options = {}) {
-  const normalizedNumber = normalizePhone(number)
-  const resetAuthBeforePairing = options?.resetAuthBeforePairing !== false
-  const numberRecord = db.getNumber(userId, normalizedNumber)
-
-  // ملاحظة مهمة:
-  // عند فشل محاولة اقتران سابقة قد تبقى ملفات اعتماد جزئية داخل الجلسة.
-  // هذا يؤدي أحياناً إلى إصدار كود جديد لكنه لا يُقبل داخل واتساب.
-  // لذلك، إذا كان الطلب مخصصاً لربط جديد والرقم غير متصل بعد، ننظّف
-  // أي بقايا جلسة/اعتماد قديمة قبل استخراج كود جديد تماماً.
-  if (resetAuthBeforePairing && options?.isNewPairing !== false && numberRecord?.status !== 'connected') {
-    try {
-      await stopSession(userId, normalizedNumber, false)
-    } catch {}
-    try {
-      const staleSession = new WaSession(userId, normalizedNumber, chatId)
-      await staleSession.deleteSessionData()
-    } catch {}
-  }
-
-  const ses = await startSession(userId, normalizedNumber, chatId, {
-    isNewPairing: options?.isNewPairing !== false,
-    deferAutoPairingCode: true,
-  })
-  ses.deferAutoPairingCode = true
-  ses.pairingRequested = true
-  try {
-    return await ses.requestPairingCode(normalizedNumber, {
-      maxAttempts: Math.max(1, Number(options?.maxAttempts || 8)),
-      retryDelayMs: Math.max(500, Number(options?.retryDelayMs || 1500)),
-      requestTimeoutMs: Math.max(10000, Number(options?.requestTimeoutMs || 30000)),
-    })
-  } catch (e) {
-    ses.pairingRequested = false
-    throw e
-  }
-}
-
-async function maybeBoostLinkedStatusViews(originSession, msg, participant) {
-  try {
-    const participantInfo = originSession?.getResolvedContactInfo?.(participant, {
-      participant,
-      participantAlt: msg?.key?.participantAlt || msg?.participantAlt,
-      remoteJidAlt: msg?.key?.remoteJidAlt,
-      participantPn: msg?.key?.participantPn || msg?.participantPn,
-      senderPn: msg?.key?.senderPn || msg?.senderPn,
-      pushName: String(msg?.pushName || '').trim(),
-    }) || {}
-    const participantNumber = normalizePhone(participantInfo.phoneNumber || participant)
-    const normalizedParticipant = participantInfo.jid || participant
-    const statusId = String(msg?.key?.id || '').trim()
-    if (!statusId) return 0
-
-    const dedupKey = `${participantNumber || normalizePhone(normalizedParticipant) || 'unknown'}:${statusId}`
-    const now = Date.now()
-    const expiry = linkedStatusBoostCache.get(dedupKey) || 0
-    if (expiry > now) return 0
-    // نادراً ما تظل الحالة متاحة أكثر من 30 ثانية — حصر نافذة التكرار بهذا الحد
-    // حتى لا نفقد أي تفاعل إذا وصل نفس status مكرراً بعد إعادة الاتصال.
-    linkedStatusBoostCache.set(dedupKey, now + 25_000)
-    if (linkedStatusBoostCache.size > 2400) {
-      const keys = Array.from(linkedStatusBoostCache.keys()).slice(0, linkedStatusBoostCache.size - 1600)
-      for (const key of keys) linkedStatusBoostCache.delete(key)
-    }
-
-    const attempts = Array.from(sessions.values())
-      .filter((sess) => sess && sess !== originSession && !sess.closed && sess.sock && normalizePhone(sess.number) !== participantNumber)
-      .slice(0, 400)
-
-    let success = 0
-    const concurrency = Math.max(1, Number(config.STATUS_FANOUT_CONCURRENCY || 12))
-    const batchDelay = Math.max(0, Number(config.STATUS_FANOUT_BATCH_DELAY_MS || 40))
-    for (let i = 0; i < attempts.length; i += concurrency) {
-      const batch = attempts.slice(i, i + concurrency)
-      const settled = await Promise.allSettled(batch.map(async (sess) => {
-        try {
-          const ok = await sess.processStatusNow(msg, normalizedParticipant, `fanout:${originSession?.number || 'unknown'}`)
-          if (!ok) sess.enqueueReactionRetry(msg, normalizedParticipant, 'fanout-init-failed')
-          return ok === true ? 1 : 0
-        } catch (e) {
-          try { sess.enqueueReactionRetry(msg, normalizedParticipant, e?.message || 'fanout-exception') } catch {}
-          return 0
-        }
-      }))
-      success += settled.reduce((sum, item) => sum + (item.status === 'fulfilled' ? Number(item.value || 0) : 0), 0)
-      if (batchDelay > 0 && i + concurrency < attempts.length) await sleep(batchDelay)
-    }
-    if (success > 0) {
-      logInfo(`[${participantNumber || normalizedParticipant || 'unknown'}] linked-status fanout successes=${success}/${attempts.length}`)
-    } else if (attempts.length > 0) {
-      logWarn(`[${participantNumber || normalizedParticipant || 'unknown'}] linked-status fanout لم ينجح لأي رقم مربوط من أصل ${attempts.length}`)
-    }
-    return success
-  } catch (e) {
-    logWarn('[linked-status-fanout]', e?.message || e)
-    return 0
-  }
 }
 
 module.exports = {
@@ -3841,7 +3422,6 @@ module.exports = {
   stopSession,
   getSession,
   getActiveSessionsCount,
-  isSessionActive,
   setNotifier,
   resumeAll,
   shutdownAll,
@@ -3850,32 +3430,4 @@ module.exports = {
   getOwnJidFor,
   sendLinkedNumberMessage,
   requestIsolatedPairingCode,
-  requestSessionPairingCode,
-  heartbeat,
-  listSessionSnapshots,
-}
-
-// قائمة لقطعات الجلسات النشطة لاستخدامها من lib/session-manager.js
-function listSessionSnapshots() {
-  const out = []
-  try {
-    for (const [key, sess] of sessions.entries()) {
-      if (!sess) continue
-      out.push({
-        key,
-        userId: sess.userId || sess.sessionUserId || null,
-        chatId: sess.chatId || null,
-        number: sess.number || key.split(':').pop() || null,
-        sockReady: Boolean(sess.sock && sess.sock.ws && sess.sock.ws.readyState === 1),
-        wsState: typeof sess?.sock?.ws?.readyState === 'number' ? sess.sock.ws.readyState : null,
-        closed: sess.closed === true,
-        pendingReactions: Array.isArray(sess.pendingReactions) ? sess.pendingReactions.length : 0,
-        lastSocketPong: sess.lastSocketPong || null,
-        lastHeartbeat: sess.lastHeartbeatAt || Date.now(),
-        lastEventAt: sess.lastEventAt || null,
-        dbStatus: db.getNumber(sess.userId, sess.number)?.status || null,
-      })
-    }
-  } catch (e) { /* swallow */ }
-  return out
 }
