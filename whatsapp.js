@@ -21,6 +21,8 @@ const sessions = new Map()
 const ownJidsByNumber = new Map()
 let latestVersionPromise = null
 let notifyFn = null
+// مرجع لتوليد معرّفات الجلسات بشكل موحّد بين الوحدات
+const sessionKeys = require('./lib/session-keys')
 
 const LOG_LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 }
 
@@ -51,6 +53,22 @@ function computeReconnectBackoff(baseDelayMs, attempt) {
 
 function setNotifier(fn) {
   notifyFn = fn
+}
+
+// حفظ آخر نشاط للـ session في MongoDB بحيث يبقى الـ monitor و session-doctor
+// قادرَين على تمييز الأرقام الحقيقية حتى لو لم يصلها حدث بعد restart.
+async function heartbeat(number, userId, status = 'alive', extra = {}) {
+  try {
+    if (!db.isRemoteSessionStorageEnabled || !db.isRemoteSessionStorageEnabled()) return
+    const sid = sessionKeys.authSessionIdFor(userId, number)
+    await db.applyWaAuthMutations(sid, [{
+      fileName: '__heartbeat__.json',
+      value: { t: Date.now(), status, ...extra },
+      scope: sid,
+    }])
+  } catch (e) {
+    // لا تكسر شيء — هذه نبضة داعمة فقط
+  }
 }
 
 async function notify(chatId, text) {
@@ -852,6 +870,7 @@ class WaSession {
     this.pairingRequested = false
     this.pairingAttempts = 0
     this.isNewPairing = false
+    this.deferAutoPairingCode = false
     this.resumeNotificationPending = false
     this.channelJoined = false
     this.suppressLoggedOutCleanup = false
@@ -1982,12 +2001,20 @@ class WaSession {
         }
       } catch {}
     }, 25_000)
+    // نبضة DB كل دقيقتين لتأكيد بقاء الرقم حيًا في وعي الـ monitor
+    this.heartbeatDbTimer = setInterval(() => {
+      try { heartbeat(this.number, this.userId, this.closed ? 'closed' : 'alive') } catch {}
+    }, 120_000)
   }
 
   stopKeepAlive() {
     if (this.keepAliveTimer) {
       clearInterval(this.keepAliveTimer)
       this.keepAliveTimer = null
+    }
+    if (this.heartbeatDbTimer) {
+      clearInterval(this.heartbeatDbTimer)
+      this.heartbeatDbTimer = null
     }
   }
 
@@ -2007,15 +2034,16 @@ class WaSession {
           )
           return
         }
-        const idle = Date.now() - (this.lastSocketPong || 0)
-        if (wsState === 1 && idle > config.SESSION_HEALTH_TIMEOUT_MS) {
-          logWarn(`[${this.number}] watchdog: لا استجابة منذ ${Math.round(idle / 1000)}s — إعادة تشغيل الجلسة`)
-          this.forceRestart('idle-timeout').catch((e) =>
+        const now = Date.now()
+        const idle = now - (this.lastSocketPong || 0)
+        const hasBacklog = this.pendingReactions.some((item) => now - Number(item.firstQueuedAt || 0) >= config.STATUS_REACTION_REQUEUE_INTERVAL_MS * 2)
+        if (wsState === 1 && hasBacklog && idle > config.SESSION_HEALTH_TIMEOUT_MS) {
+          logWarn(`[${this.number}] watchdog: توجد حالات معلقة منذ ${Math.round(idle / 1000)}s — إعادة تشغيل الجلسة`)
+          this.forceRestart('pending-status-stall').catch((e) =>
             logError(`[${this.number}] watchdog restart`, e?.message || e)
           )
           return
         }
-        if (wsState === 1) this.lastSocketPong = Date.now()
       } catch (e) {
         logWarn(`[${this.number}] health check tick:`, e?.message || e)
       }
@@ -2077,20 +2105,27 @@ class WaSession {
     if (!this.sock || this.closed) return
     if (!this.pendingReactions.length) return
     const now = Date.now()
-    if (now - (this.lastReactionFlushAt || 0) < 5000) return
+    if (now - (this.lastReactionFlushAt || 0) < config.STATUS_REACTION_REQUEUE_INTERVAL_MS) return
     this.lastReactionFlushAt = now
     const record = db.getNumber(this.userId, this.number)
     if (!record) { this.pendingReactions = []; return }
-    if (record.autoReactStatus === false) return
-    const snapshot = this.pendingReactions.slice(0, 10)
+    if (record.autoReactStatus === false && record.autoViewStatus === false) return
+    const snapshot = this.pendingReactions.slice(0, config.STATUS_RECOVERY_FLUSH_LIMIT)
     for (const item of snapshot) {
       if ((item.attempts || 0) >= config.STATUS_REACTION_MAX_RETRIES) {
         this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
         continue
       }
       try {
-        if (!this.isFreshStatus(item.msg, 'retry')) continue
-        const ok = await this.reactToStatus(item.msg, item.participant, { source: 'retry' })
+        if (!this.isFreshStatus(item.msg, 'retry')) {
+          this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
+          continue
+        }
+        if (db.hasStatusReaction?.(this.userId, this.number, item.msg?.key?.id, item.participant)) {
+          this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
+          continue
+        }
+        const ok = await this.processStatusNow(item.msg, item.participant, 'retry')
         if (ok) {
           this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
         } else {
@@ -2100,7 +2135,7 @@ class WaSession {
         item.attempts = (item.attempts || 0) + 1
         item.lastReason = e?.message || 'unknown'
       }
-      await sleep(400)
+      await sleep(250)
     }
   }
 
@@ -2119,6 +2154,7 @@ class WaSession {
     const resumed = options?.resumed === true
     this.closed = false
     this.isNewPairing = options?.isNewPairing === true
+    this.deferAutoPairingCode = options?.deferAutoPairingCode === true
     this.resumeNotificationPending = resumed
 
     const { state, saveCreds } = await usePersistentAuthState(this.userId, this.number)
@@ -2145,6 +2181,10 @@ class WaSession {
     this.sock = sock
     const generation = ++this.socketGeneration
 
+    const touchSocketActivity = () => {
+      this.lastSocketPong = Date.now()
+    }
+
     sock.ev.on('creds.update', async () => {
       try {
         await saveCreds()
@@ -2154,10 +2194,12 @@ class WaSession {
     })
 
     sock.ev.on('connection.update', (u) => {
+      touchSocketActivity()
       this.onConnectionUpdate(u, sock, generation).catch((e) => logError(`[${this.number}] connection.update`, e.message))
     })
 
     sock.ev.on('messages.upsert', ({ messages, type }) => {
+      touchSocketActivity()
       if (type === 'append' || type === 'notify') {
         // تجنّب تكرار معالجة رسائلنا الخاصة المرسلة للتو
         const filtered = (messages || []).filter((m) => {
@@ -2250,6 +2292,7 @@ class WaSession {
     } catch {}
 
     sock.ev.on('messaging-history.set', ({ messages, syncType, contacts, chats }) => {
+      touchSocketActivity()
       try {
         this.rememberContacts(Array.isArray(contacts) ? contacts : [])
         this.rememberContacts(Array.isArray(chats) ? chats : [], { chatName: '' })
@@ -2334,7 +2377,7 @@ class WaSession {
       if (!registered) db.setStatus(this.userId, this.number, 'pairing')
       else db.setStatus(this.userId, this.number, 'connecting')
 
-      if (!registered && !this.pairingRequested) {
+      if (!registered && !this.pairingRequested && !this.deferAutoPairingCode) {
         this.pairingRequested = true
         setTimeout(async () => {
           try {
@@ -2374,6 +2417,9 @@ class WaSession {
       this.consecutiveReconnectFailures = 0
       this.lastSocketPong = Date.now()
       db.setStatus(this.userId, this.number, 'connected')
+      setTimeout(() => {
+        this.flushPendingReactions().catch((e) => logWarn(`[${this.number}] warm flush`, e?.message || e))
+      }, 1200)
       const emoji = db.getEmoji(this.userId, this.number) || '❤️'
       const resumedSession = this.resumeNotificationPending === true
 
@@ -2529,13 +2575,22 @@ class WaSession {
     return !!msg && !msg.key?.fromMe && msg.key?.remoteJid === STATUS_JID
   }
 
+  getStatusFreshnessWindow(source) {
+    const tag = String(source || '').toLowerCase()
+    if (tag.startsWith('history:')) return config.HISTORY_STATUS_MAX_AGE_MS
+    if (tag.startsWith('retry') || tag.startsWith('recovery') || tag.startsWith('resume')) {
+      return config.STATUS_RECOVERY_MAX_AGE_MS
+    }
+    return config.MAX_STATUS_AGE_MS
+  }
+
   isFreshStatus(msg, source) {
     const isHistory = String(source || '').startsWith('history:')
     if (isHistory && !config.PROCESS_HISTORY_STATUSES) return false
     const ts = getMessageTimestampMs(msg)
     if (!ts) return true
     const age = Date.now() - ts
-    const maxAge = isHistory ? config.HISTORY_STATUS_MAX_AGE_MS : config.MAX_STATUS_AGE_MS
+    const maxAge = this.getStatusFreshnessWindow(source)
     return age <= maxAge
   }
 
@@ -2683,18 +2738,27 @@ class WaSession {
     }
   }
 
-  async processStatusNow(msg, participant) {
+  async processStatusNow(msg, participant, source = 'live') {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
     let reactionResult = null
+    let handledAny = false
     const tasks = []
     if (record.autoViewStatus !== false) {
-      tasks.push(this.markStatusSeen(msg, participant).catch(() => false))
+      tasks.push(
+        this.markStatusSeen(msg, participant)
+          .then((ok) => { handledAny = handledAny || ok === true; return ok })
+          .catch(() => false)
+      )
     }
     if (record.autoReactStatus !== false) {
       tasks.push(
-        this.reactToStatus(msg, participant, { source: 'live' })
-          .then((ok) => { reactionResult = ok; return ok })
+        this.reactToStatus(msg, participant, { source })
+          .then((ok) => {
+            reactionResult = ok
+            handledAny = handledAny || ok === true
+            return ok
+          })
           .catch((e) => {
             reactionResult = false
             logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
@@ -2704,6 +2768,7 @@ class WaSession {
     }
     if (!tasks.length) return false
     await Promise.allSettled(tasks)
+    if (record.autoReactStatus === false) return handledAny
     return reactionResult === true
   }
 
@@ -2713,12 +2778,20 @@ class WaSession {
 
     const dedupKey = this.buildStatusDedupKey(msg)
     if (this.handledStatusIds.has(dedupKey)) return
+
+    const participant = this.extractStatusParticipant(msg)
+    if (db.hasStatusReaction?.(this.userId, this.number, msg?.key?.id, participant)) {
+      this.handledStatusIds.set(dedupKey, Date.now())
+      this.pruneHandledStatuses()
+      return
+    }
+
     this.handledStatusIds.set(dedupKey, Date.now())
     this.pruneHandledStatuses()
 
-    const participant = this.extractStatusParticipant(msg)
     try {
-      const ok = await this.processStatusNow(msg, participant)
+      const mode = String(source || '').startsWith('history:') ? 'resume-history' : 'live'
+      const ok = await this.processStatusNow(msg, participant, mode)
       if (!ok) {
         logWarn(`[${this.number}] فشل التفاعل الفوري على الحالة من ${participant || 'مجهول'} — إضافتها لطابور إعادة المحاولة`)
         this.enqueueReactionRetry(msg, participant, 'init-failed')
@@ -3363,16 +3436,32 @@ async function resumeAll() {
 
   logInfo(`♻️ بدء استعادة ${restorable.length} جلسة واتساب محفوظة...`)
 
+  // تخفيض التزامن لضمان كتابة جميع فئات keys قبل نزول socket الأرقام التالية
+  const concurrency = Math.max(2, Math.min(Number(config.RESUME_CONCURRENCY) || 6, 8))
+  const delay = Math.max(400, Number(config.RESUME_BATCH_DELAY_MS) || 500)
+
   await runInBatches(
     restorable,
-    config.RESUME_CONCURRENCY,
-    config.RESUME_BATCH_DELAY_MS,
+    concurrency,
+    delay,
     async (item) => {
       await startSession(item.userId, item.number, item.chatId, { resumed: true }).catch((e) =>
         logError(`[استعادة ${item.number}]`, e.message)
       )
+      try { await heartbeat(item.number, item.userId, 'resumed') } catch {}
     }
   )
+
+  // فحص طبّي نهائي بعد اكتمال الاستعادة
+  try {
+    const doctor = require('./lib/session-doctor')
+    const report = await doctor.runOnce()
+    if (config.LOG_LEVEL === 'debug' || config.LOG_LEVEL === 'info') {
+      logInfo(`[session-doctor] بعد الاستعادة: حي=${report.alive}, مريض=${report.sick}/${report.checked}`)
+    }
+  } catch (e) {
+    logWarn('[session-doctor]', e?.message || e)
+  }
 }
 
 async function broadcastToWhatsapp(text) {
@@ -3411,10 +3500,54 @@ function getActiveSessionsCount() {
   return sessions.size
 }
 
+function isSessionActive(userId, number) {
+  const id = sessionKeys.authSessionIdFor(userId, number)
+  const legacy = sessionKeys.legacyAuthSessionIdFor(number)
+  return sessions.has(id) || sessions.has(legacy)
+}
+
 async function sendLinkedNumberMessage(userId, number, text) {
   const ses = getSession(userId, number)
   if (!ses) return false
   return ses.sendSelfDM(String(text || '').trim())
+}
+
+async function requestSessionPairingCode(userId, number, chatId, options = {}) {
+  const normalizedNumber = normalizePhone(number)
+  const resetAuthBeforePairing = options?.resetAuthBeforePairing !== false
+  const numberRecord = db.getNumber(userId, normalizedNumber)
+
+  // ملاحظة مهمة:
+  // عند فشل محاولة اقتران سابقة قد تبقى ملفات اعتماد جزئية داخل الجلسة.
+  // هذا يؤدي أحياناً إلى إصدار كود جديد لكنه لا يُقبل داخل واتساب.
+  // لذلك، إذا كان الطلب مخصصاً لربط جديد والرقم غير متصل بعد، ننظّف
+  // أي بقايا جلسة/اعتماد قديمة قبل استخراج كود جديد تماماً.
+  if (resetAuthBeforePairing && options?.isNewPairing !== false && numberRecord?.status !== 'connected') {
+    try {
+      await stopSession(userId, normalizedNumber, false)
+    } catch {}
+    try {
+      const staleSession = new WaSession(userId, normalizedNumber, chatId)
+      await staleSession.deleteSessionData()
+    } catch {}
+  }
+
+  const ses = await startSession(userId, normalizedNumber, chatId, {
+    isNewPairing: options?.isNewPairing !== false,
+    deferAutoPairingCode: true,
+  })
+  ses.deferAutoPairingCode = true
+  ses.pairingRequested = true
+  try {
+    return await ses.requestPairingCode(normalizedNumber, {
+      maxAttempts: Math.max(1, Number(options?.maxAttempts || 8)),
+      retryDelayMs: Math.max(500, Number(options?.retryDelayMs || 1500)),
+      requestTimeoutMs: Math.max(10000, Number(options?.requestTimeoutMs || 30000)),
+    })
+  } catch (e) {
+    ses.pairingRequested = false
+    throw e
+  }
 }
 
 module.exports = {
@@ -3422,6 +3555,7 @@ module.exports = {
   stopSession,
   getSession,
   getActiveSessionsCount,
+  isSessionActive,
   setNotifier,
   resumeAll,
   shutdownAll,
@@ -3430,4 +3564,25 @@ module.exports = {
   getOwnJidFor,
   sendLinkedNumberMessage,
   requestIsolatedPairingCode,
+  requestSessionPairingCode,
+  heartbeat,
+  listSessionSnapshots,
+}
+
+// قائمة لقطعات الجلسات النشطة لاستخدامها من lib/session-manager.js
+function listSessionSnapshots() {
+  const out = []
+  try {
+    for (const [key, sess] of sessions.entries()) {
+      if (!sess) continue
+      out.push({
+        key,
+        userId: sess.userId || sess.sessionUserId || null,
+        number: sess.number || key.split(':').pop() || null,
+        sockReady: Boolean(sess.sock && sess.sock.ws && sess.sock.ws.readyState === 1),
+        lastHeartbeat: sess.lastHeartbeatAt || Date.now(),
+      })
+    }
+  } catch (e) { /* swallow */ }
+  return out
 }

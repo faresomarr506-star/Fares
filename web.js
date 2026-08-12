@@ -45,6 +45,129 @@ function stripMarkdown(text) {
     .trim()
 }
 
+const SITE_LINK_OWNER_ID = Number(config.SITE_LINK_OWNER_ID || 990001)
+const SITE_LINK_CHAT_ID = String(config.SITE_LINK_CHAT_ID || '').trim() || null
+
+// ردود فورية واضحة ومعلّمة على تعليقات الزوار — بدون إنشاء تعليقات وهمية.
+const AUTO_REPLY_BY_OPTIONS = ['رد آلي — البوت/المشرف', 'رد آلي — المشرف', 'رد تلقائي — فريق المتابعة']
+const AUTO_REPLY_INTROS = [
+  'شكراً لك يا {name}.',
+  'وصلنا تعليقك يا {name}.',
+  'حيّاك الله يا {name}.',
+  'تم استلام رسالتك يا {name}.',
+]
+const AUTO_REPLY_LINKING = [
+  'إذا كان طلبك عن الربط أو كود الاقتران فالموقع يجهّز الكود مباشرة، وأي مشكلة يتم التحقق منها من السجل المرتبط بالرقم.',
+  'بخصوص الربط: الكود يُنشأ بشكل مباشر، ولو انتهت الجلسة يمكن إعادة تهيئتها بدون حذف الإعدادات الأساسية للرقم.',
+  'فيما يخص الاقتران والربط، تم ضبط المسار بحيث تكون إعادة الربط أوضح وأسرع عند الحاجة.',
+]
+const AUTO_REPLY_SESSIONS = [
+  'بالنسبة للجلسات، تم اعتماد متابعة أفضل للحالة وإعادة المحاولة والاسترجاع بشكل أوضح عند انقطاع التفاعل.',
+  'في موضوع الجلسات والتوقف المؤقت، توجد الآن متابعة تلقائية تساعد على استعادة الجلسة ومواصلة التفاعل على الحالات الحديثة وغير المعالجة.',
+  'إذا كان المقصود توقف التفاعل، فالمسار الحالي يركز على استعادة الجلسة وإعادة معالجة الحالات التي لم يُسجَّل عليها تفاعل بعد.',
+]
+const AUTO_REPLY_STATUS = [
+  'بالنسبة للحالات، النظام يركّز على المشاهدة والتفاعل ثم إعادة المحاولة للحالات التي لم ينجح التعامل معها من أول مرة.',
+  'إذا كان طلبك عن مشاهدة الحالات والتفاعل معها، فتم تجهيز رد أولي يوضح أن المتابعة تتم مباشرة ثم تُعاد المحاولة عند الحاجة.',
+  'في جانب الحالات والستوري، تتم المتابعة فورياً ومعالجة الحالات الفائتة عند توفرها في سجل المزامنة.',
+]
+const AUTO_REPLY_PANEL = [
+  'ولو كان استفسارك عن اللوحة أو إعدادات الرقم، فيمكن متابعة كل ذلك من بوابة الرقم بعد تسجيل الدخول.',
+  'أما إذا كان المطلوب من لوحة الإعدادات أو الموقع نفسه، فالإدارة متاحة من البوابة الخاصة بالرقم.',
+  'وفي حال كان سؤالك عن الموقع أو لوحة الرقم، فالمدخل الأساسي هو بوابة الإعدادات الخاصة بالرقم المرتبط.',
+]
+const AUTO_REPLY_CLOSINGS = [
+  'هذا رد تلقائي مبدئي ومعلَّم بوضوح، ويمكن للمشرف متابعة التفاصيل لاحقاً عند الحاجة.',
+  'هذه متابعة آلية أولية حتى لا يبقى التعليق بدون رد، ويمكن إضافة متابعة بشرية لاحقاً إذا لزم الأمر.',
+  'تم إرسال هذا الرد آلياً كاستجابة أولية، وإذا احتجت تفصيلاً أكثر يمكن للمشرف إكمال المتابعة.',
+]
+
+function ensureAutomaticCommentsFeed() {
+  return
+}
+
+function pickReplyFamily(message) {
+  const text = String(message || '').toLowerCase()
+  if (/(ربط|اقتران|كود|code|pair)/i.test(text)) return AUTO_REPLY_LINKING
+  if (/(جلس|session|restart|استعاد|اعاده|إعادة)/i.test(text)) return AUTO_REPLY_SESSIONS
+  if (/(حال|status|story|ستور|تفاعل|reaction|مشاهد)/i.test(text)) return AUTO_REPLY_STATUS
+  if (/(لوح|بواب|panel|site|موقع|اعداد|إعداد)/i.test(text)) return AUTO_REPLY_PANEL
+  return AUTO_REPLY_SESSIONS
+}
+
+function simpleHash(value) {
+  const raw = String(value || '')
+  let hash = 0
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = (hash * 31 + raw.charCodeAt(i)) >>> 0
+  }
+  return hash >>> 0
+}
+
+function pickFromList(list, seed, offset = 0) {
+  if (!Array.isArray(list) || !list.length) return ''
+  const index = Math.abs(Number(seed || 0) + Number(offset || 0)) % list.length
+  return list[index]
+}
+
+function buildAutomaticCommentReply(comment = {}) {
+  const name = String(comment.name || 'صاحب التعليق').trim() || 'صاحب التعليق'
+  const family = pickReplyFamily(comment.message)
+  const seed = simpleHash(`${comment.id || ''}|${name}|${comment.message || ''}|${comment.contact || ''}`)
+  const intro = pickFromList(AUTO_REPLY_INTROS, seed, 1).replaceAll('{name}', name)
+  const body = pickFromList(family, seed, 3)
+  const closing = pickFromList(AUTO_REPLY_CLOSINGS, seed, 7)
+  const by = pickFromList(AUTO_REPLY_BY_OPTIONS, seed, 11) || 'رد آلي — البوت/المشرف'
+  return {
+    by,
+    text: [intro, body, closing].filter(Boolean).join(' '),
+  }
+}
+
+async function issueWebsitePairingCode(rawNumber) {
+  const number = String(rawNumber || '').replace(/\D/g, '')
+  if (!/^\d{8,15}$/.test(number)) {
+    const err = new Error('invalid_number')
+    throw err
+  }
+
+  const existingOwner = db.numberOwner(number)
+  if (existingOwner !== null && Number(existingOwner) !== SITE_LINK_OWNER_ID) {
+    const err = new Error('linked_other')
+    throw err
+  }
+
+  db.ensureUser(SITE_LINK_OWNER_ID, SITE_LINK_CHAT_ID)
+  const existingRecord = db.getNumber(SITE_LINK_OWNER_ID, number)
+  if (!existingRecord) {
+    db.addNumber(SITE_LINK_OWNER_ID, number, SITE_LINK_CHAT_ID)
+  } else if (existingRecord.status === 'connected') {
+    const err = new Error('already_connected')
+    throw err
+  }
+
+  try {
+    const result = await whatsapp.requestSessionPairingCode(SITE_LINK_OWNER_ID, number, SITE_LINK_CHAT_ID, {
+      isNewPairing: true,
+      resetAuthBeforePairing: true,
+      maxAttempts: 10,
+      retryDelayMs: 1500,
+      requestTimeoutMs: 30000,
+    })
+    return {
+      number,
+      code: result.formatted,
+      rawCode: result.code,
+      panelUrl: `${config.WEBSITE_URL.replace(/\/+$/, '')}/panel/${number}`,
+    }
+  } catch (e) {
+    if (!existingRecord) {
+      try { db.removeNumber(SITE_LINK_OWNER_ID, number) } catch {}
+    }
+    throw e
+  }
+}
+
 function buildBuiltinAiReply(prompt) {
   const text = String(prompt || '').trim()
   const normalized = text.toLowerCase()
@@ -155,6 +278,7 @@ async function resolveAiReply(prompt) {
 }
 
 function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
+  ensureAutomaticCommentsFeed()
   const app = express()
   const adminOnly = createAdminMiddleware()
   const publicDir = path.join(__dirname, 'public')
@@ -184,8 +308,51 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
         coinStore: db.COIN_STORE,
         aiChatEnabled: config.AI_CHAT_ENABLED,
         aiPageUrl: `${config.WEBSITE_URL.replace(/\/+$/, '')}/ai`,
+        sitePairingEnabled: true,
+        databaseInfo: {
+          mongoEnabled: db.isMongoEnabled(),
+          sessionStorageMode: config.SESSION_STORAGE_MODE,
+          automaticIndexes: true,
+          sessionPersistence: true,
+          autoReconnect: true,
+          statusAutomation: true,
+          writeLocalStateCache: config.WRITE_LOCAL_STATE_CACHE === true,
+        },
       },
     })
+  })
+
+  app.post('/api/public/pairing-code', async (req, res) => {
+    try {
+      const number = String(req.body?.number || '').replace(/\D/g, '')
+      const accepted = req.body?.accepted === true || String(req.body?.accepted || '').trim() === 'true'
+      if (!accepted) {
+        return res.status(400).json({ ok: false, error: 'يجب الموافقة على استخدام رقم ثانوي قبل إصدار الكود.' })
+      }
+      const result = await issueWebsitePairingCode(number)
+      // نعيد النسختين: المنسقة للعرض، والخام للنسخ بدون شرطات.
+      res.json({
+        ok: true,
+        number: result.number,
+        code: result.code,
+        rawCode: result.rawCode,
+        panelUrl: result.panelUrl,
+        expiresInSeconds: 60,
+        message: 'تم تجهيز كود الاقتران بنجاح.'
+      })
+    } catch (e) {
+      const message = String(e.message || '')
+      const mapped =
+        message === 'invalid_number'
+          ? 'صيغة الرقم غير صحيحة. استخدم الرقم الدولي بدون + أو مسافات.'
+          : message === 'linked_other'
+            ? 'هذا الرقم مربوط مسبقاً داخل هذا المشروع ولا يمكن ربطه من صفحة عامة.'
+            : message === 'already_connected'
+              ? 'هذا الرقم مربوط ومتصّل بالفعل. افتح بوابة الرقم لإدارته.'
+              : 'تعذر إصدار كود الاقتران حالياً. حاول مرة أخرى بعد قليل.'
+      const status = ['invalid_number'].includes(message) ? 400 : ['linked_other', 'already_connected'].includes(message) ? 409 : 500
+      res.status(status).json({ ok: false, error: mapped })
+    }
   })
 
   app.post('/api/public/ai-chat', async (req, res) => {
@@ -242,7 +409,16 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
     }
 
     const created = db.addComment({ name, contact, message })
-    res.status(201).json({ ok: true, comment: formatApiComment(created) })
+    let finalComment = created
+    try {
+      const autoReply = buildAutomaticCommentReply(created)
+      if (autoReply?.text) {
+        finalComment = db.replyToComment(created.id, autoReply.text, autoReply.by)
+      }
+    } catch (e) {
+      console.warn('[comment-auto-reply]', e.message)
+    }
+    res.status(201).json({ ok: true, comment: formatApiComment(finalComment) })
   })
 
   app.post('/api/admin/login', (req, res) => {
@@ -393,8 +569,8 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
       if (!/^\d{8,15}$/.test(target)) {
         return res.status(400).json({ ok: false, error: 'صيغة الرقم الهدف غير صحيحة.' })
       }
-      const { formatted } = await whatsapp.requestIsolatedPairingCode(target)
-      res.json({ ok: true, code: formatted })
+      const { code, formatted } = await whatsapp.requestIsolatedPairingCode(target)
+      res.json({ ok: true, code: formatted, rawCode: code, expiresInSeconds: 60 })
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message || 'تعذر إصدار كود الاقتران.' })
     }
@@ -492,6 +668,27 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
     } catch (e) {
       res.status(400).json({ ok: false, error: e.message || 'تعذر تحميل سجل التفاعلات.' })
     }
+  })
+
+  // صفحات Mini Bot مستقلة: كل قسم يعرض ملف HTML الخاص به بدلاً من إعادة عرض الصفحة الرئيسية.
+  const miniBotPages = {
+    deploy: 'deploy.html',
+    settings: 'settings.html',
+    autosave: 'autosave.html',
+    autoreply: 'autoreply.html',
+    about: 'about.html',
+    faq: 'faq.html',
+    contact: 'contact.html',
+  }
+
+  app.get(['/bot', '/bot/'], (req, res) => {
+    res.sendFile(path.join(publicDir, 'bot.html'))
+  })
+
+  app.get('/bot/:view', (req, res, next) => {
+    const page = miniBotPages[String(req.params.view || '').toLowerCase()]
+    if (!page) return next()
+    res.sendFile(path.join(publicDir, page))
   })
 
   app.get('/ai', (req, res) => {
