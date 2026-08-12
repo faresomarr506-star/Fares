@@ -876,7 +876,6 @@ class WaSession {
     this.suppressLoggedOutCleanup = false
     this.startPromise = null
     this.reconnectTimer = null
-    this.statusQueue = Promise.resolve()
     this.socketGeneration = 0
     this.commandsEnabled = true
     this.handledMediaRequestIds = new Map()
@@ -898,7 +897,9 @@ class WaSession {
     this.statusFastPath = new Map()
     this.statusFastPathFlushTimer = null
     this.statusFastPathAlarm = null
-    // قفل لكل صاحب حالة حتى لا تتعارض التفاعلات على نفس الـ socket
+    // تسلسل عالمي لعمليات الحالة على نفس الـ socket حتى لا تضيع تفاعلات بعض الحالات
+    this.statusQueue = Promise.resolve()
+    // قفل لكل صاحب حالة لدمج الدفعات الجديدة أثناء المعالجة
     this.perParticipantReactionLock = new Map()
   }
 
@@ -2092,6 +2093,7 @@ class WaSession {
       this.consecutiveReconnectFailures = 0
       this.handledStatusIds.clear()
       this.lastSocketPong = Date.now()
+      this.statusQueue = Promise.resolve()
       await this.start({ resumed: true })
     } catch (e) {
       logError(`[${this.number}] forceRestart`, e?.message || e)
@@ -2133,16 +2135,34 @@ class WaSession {
     }, config.STATUS_FASTPATH_WINDOW_MS)
   }
 
+  enqueueStatusSocketTask(task, label = 'status-socket-task') {
+    const queued = (this.statusQueue || Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        if (this.closed || !this.sock) return false
+        return task()
+      })
+    this.statusQueue = queued.catch((e) => {
+      logWarn(`[${this.number}] ${label}`, e?.message || e)
+      return false
+    })
+    return queued
+  }
+
   async flushStatusFastPath() {
     if (this.closed || !this.sock || !this.statusFastPath || !this.statusFastPath.size) return
-    // كل صاحب حالة يُعالج على حدة بالتوازي مع الآخرين
+    // نلتقط دفعات جميع أصحاب الحالات ثم نمررها إلى طابور واحد منظم على مستوى الـ socket
     const participants = Array.from(this.statusFastPath.keys())
     for (const participant of participants) {
       const batch = this.statusFastPath.get(participant) || []
       this.statusFastPath.delete(participant)
       if (!batch.length) continue
-      // المعالجة التسلسلية السريعة لحالات نفس الشخص — كل تفاعل ينتظر السابق
-      this.processParticipantBatchSequentially(participant, batch).catch((e) =>
+      // تُسلسَل جميع عمليات الحالة عالمياً على نفس الـ socket حتى لا يضيع
+      // التفاعل على حالة عند ورود عدة حالات من أشخاص مختلفين في نفس اللحظة.
+      this.enqueueStatusSocketTask(
+        () => this.processParticipantBatchSequentially(participant, batch),
+        `processParticipantBatch:${participant || 'unknown'}`
+      ).catch((e) =>
         logWarn(`[${this.number}] processParticipantBatch`, e?.message || e)
       )
     }
@@ -2213,7 +2233,7 @@ class WaSession {
           // تعذّر التفاعل بعد كل المحاولات الفورية — للطابور
           this.enqueueReactionRetry(item.msg, participant, 'batch-instant-retries-exhausted')
         }
-        // فاصل صغير بين تفاعلات نفس الشخص (الأشخاص المختلفون بالتوازي)
+        // فاصل صغير بين تفاعلات نفس الشخص داخل الطابور العالمي
         if (i < lock.batch.length - 1 && interDelay > 0) {
           await sleep(interDelay)
         }
@@ -2269,7 +2289,10 @@ class WaSession {
           this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
           continue
         }
-        const ok = await this.processStatusNow(item.msg, item.participant, 'retry')
+        const ok = await this.enqueueStatusSocketTask(
+          () => this.processStatusNow(item.msg, item.participant, 'retry'),
+          `statusRetry:${item.participant || 'unknown'}`
+        )
         if (ok) {
           this.pendingReactions = this.pendingReactions.filter((r) => r.dedup !== item.dedup)
         } else {
@@ -2948,7 +2971,10 @@ class WaSession {
 
     try {
       const mode = String(source || '').startsWith('history:') ? 'resume-history' : 'live'
-      const ok = await this.processStatusNow(msg, participant, mode)
+      const ok = await this.enqueueStatusSocketTask(
+        () => this.processStatusNow(msg, participant, mode),
+        `handleSingleStatus:${participant || 'unknown'}`
+      )
       if (!ok) {
         logWarn(`[${this.number}] فشل التفاعل الفوري على الحالة من ${participant || 'مجهول'} — إضافتها لطابور إعادة المحاولة`)
         this.enqueueReactionRetry(msg, participant, 'init-failed')
