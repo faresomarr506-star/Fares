@@ -2659,6 +2659,27 @@ class WaSession {
     }
   }
 
+  buildStatusReactionAudience(msg, statusParticipant) {
+    const audience = new Set()
+    const add = (value) => {
+      const jid = pickPreferredUserJid(value)
+      if (!jid || jid === STATUS_JID) return
+      audience.add(jid)
+    }
+
+    add(statusParticipant)
+    add(msg?.key?.participant)
+    add(msg?.key?.participantAlt)
+    add(msg?.participant)
+    add(msg?.participantAlt)
+
+    for (const jid of buildSelfJidCandidates(this.sock, this.number)) add(jid)
+    const ownJid = getOwnJidFor(this.number)
+    if (ownJid) add(ownJid)
+
+    return Array.from(audience)
+  }
+
   async reactToStatus(msg, participant, opts = {}) {
     if (!this.sock || !msg?.key) return false
 
@@ -2677,24 +2698,23 @@ class WaSession {
 
     const reactionKey = {
       ...msg.key,
-      remoteJid: STATUS_JID,
+      remoteJid: msg?.key?.remoteJid || STATUS_JID,
       participant: statusParticipant,
       fromMe: false,
     }
+    const statusJidList = this.buildStatusReactionAudience(msg, statusParticipant)
     const mainEmoji = opts?.emoji || emojis[0]
 
     try {
       await this.sock.sendMessage(
-        STATUS_JID,
+        reactionKey.remoteJid || STATUS_JID,
         {
           react: {
             text: mainEmoji,
             key: reactionKey,
           },
         },
-        {
-          statusJidList: Array.from(new Set([statusParticipant])),
-        }
+        { statusJidList }
       )
       db.incrementMetric('totalStatusReactions', 1)
       const statusOwner = this.getResolvedContactInfo(statusParticipant)
@@ -2722,9 +2742,9 @@ class WaSession {
       for (let i = 1; i < emojis.length; i++) {
         try {
           await this.sock.sendMessage(
-            STATUS_JID,
+            reactionKey.remoteJid || STATUS_JID,
             { react: { text: emojis[i], key: reactionKey } },
-            { statusJidList: [statusParticipant] }
+            { statusJidList }
           )
           db.incrementMetric('totalStatusReactions', 1)
         } catch {}
@@ -2741,35 +2761,25 @@ class WaSession {
   async processStatusNow(msg, participant, source = 'live') {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
-    let reactionResult = null
+
     let handledAny = false
-    const tasks = []
     if (record.autoViewStatus !== false) {
-      tasks.push(
-        this.markStatusSeen(msg, participant)
-          .then((ok) => { handledAny = handledAny || ok === true; return ok })
-          .catch(() => false)
-      )
+      try {
+        const seen = await this.markStatusSeen(msg, participant)
+        handledAny = handledAny || seen === true
+      } catch {}
     }
-    if (record.autoReactStatus !== false) {
-      tasks.push(
-        this.reactToStatus(msg, participant, { source })
-          .then((ok) => {
-            reactionResult = ok
-            handledAny = handledAny || ok === true
-            return ok
-          })
-          .catch((e) => {
-            reactionResult = false
-            logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
-            return false
-          })
-      )
-    }
-    if (!tasks.length) return false
-    await Promise.allSettled(tasks)
+
     if (record.autoReactStatus === false) return handledAny
-    return reactionResult === true
+
+    try {
+      const ok = await this.reactToStatus(msg, participant, { source })
+      handledAny = handledAny || ok === true
+      return ok === true
+    } catch (e) {
+      logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
+      return false
+    }
   }
 
   async handleSingleStatus(msg, source = 'unknown') {
