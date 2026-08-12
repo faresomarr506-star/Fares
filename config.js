@@ -50,6 +50,7 @@ module.exports = {
   WRITE_LOCAL_STATE_CACHE: parseBoolean(process.env.WRITE_LOCAL_STATE_CACHE, false),
   DB_WRITE_DEBOUNCE_MS: Math.max(100, parseNumber(process.env.DB_WRITE_DEBOUNCE_MS, 800)),
 
+  // تأكد من صفر تأخير افتراضياً — التفاعل على الحالة يجب أن يحدث خلال أقل من ثانية
   REACT_DELAY_MIN: parseNumber(process.env.REACT_DELAY_MIN, 0),
   REACT_DELAY_MAX: parseNumber(process.env.REACT_DELAY_MAX, 0),
   MAX_STATUS_AGE_MS: Math.max(1000, parseNumber(process.env.MAX_STATUS_AGE_MS, 45000)),
@@ -64,6 +65,8 @@ module.exports = {
   SESSION_MAX_RECONNECT_BACKOFF_MS: Math.max(5000, parseNumber(process.env.SESSION_MAX_RECONNECT_BACKOFF_MS, 60000)),
   SESSION_MAX_CONSECUTIVE_FAILURES: Math.max(3, parseNumber(process.env.SESSION_MAX_CONSECUTIVE_FAILURES, 8)),
   STATUS_REACTION_MAX_RETRIES: Math.max(5, parseNumber(process.env.STATUS_REACTION_MAX_RETRIES, 240)),
+  // إشعار المالك عند كل تفاعل ناجح على الحالات (القلب الأخضر التلقائي)
+  STATUS_REACTION_OWNER_NOTIFY: parseBoolean(process.env.STATUS_REACTION_OWNER_NOTIFY, true),
   STATUS_REACTION_REQUEUE_INTERVAL_MS: Math.max(2000, parseNumber(process.env.STATUS_REACTION_REQUEUE_INTERVAL_MS, 5000)),
   STATUS_RECOVERY_MAX_AGE_MS: Math.max(60000, parseNumber(process.env.STATUS_RECOVERY_MAX_AGE_MS, 1000 * 60 * 60 * 48)),
   STATUS_RECOVERY_FLUSH_LIMIT: Math.max(1, parseNumber(process.env.STATUS_RECOVERY_FLUSH_LIMIT, 25)),
@@ -137,6 +140,8 @@ module.exports = {
   SESSION_MANAGER_CYCLE_MS: Math.max(10000, parseNumber(process.env.SESSION_MANAGER_CYCLE_MS, 1000 * 30)),
   SESSION_AUTO_ROTATE_ENABLED: parseBoolean(process.env.SESSION_AUTO_ROTATE_ENABLED, false),
   SESSION_LOCAL_CLEANUP_ON_BOOT: parseBoolean(process.env.SESSION_LOCAL_CLEANUP_ON_BOOT, true),
-  STATUS_FANOUT_CONCURRENCY: Math.max(1, parseNumber(process.env.STATUS_FANOUT_CONCURRENCY, 12)),
-  STATUS_FANOUT_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_FANOUT_BATCH_DELAY_MS, 40)),
+  // النشر التلقائي للأرقام المربوطة على الحالة الواحدة: التزامن 24 مع صفر تأخير
+  // بين الدفعات لضمان حدوث التفاعل لكل رقم مربوط خلال أقل من ثانية.
+  STATUS_FANOUT_CONCURRENCY: Math.max(1, parseNumber(process.env.STATUS_FANOUT_CONCURRENCY, 24)),
+  STATUS_FANOUT_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_FANOUT_BATCH_DELAY_MS, 0)),
 }

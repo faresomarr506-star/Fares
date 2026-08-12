@@ -2854,8 +2854,11 @@ class WaSession {
       .split(/[\s,،]+/)
       .map((s) => s.trim())
       .filter(Boolean)
-      .slice(0, 10)
+      .slice(0, 9)
     if (!emojis.length) emojis.push('❤️')
+    // إيموجي القلب الأخضر 💚 يُلحق تلقائياً مع كل تفاعل — هذا ما يجعل العلامة تتحول
+    // إلى لون أخضر في واتساب ويؤكد للملاك أن الرقم المربوط قد تفاعل فعلاً.
+    if (!emojis.includes('💚')) emojis.push('💚')
 
     const statusParticipant = participant || this.extractStatusParticipant(msg)
     if (!statusParticipant || statusParticipant === STATUS_JID) return false
@@ -2901,7 +2904,12 @@ class WaSession {
         source: opts.source === 'retry' ? 'retry' : 'auto',
       })
 
-      if (db.hasActiveFeature?.(this.userId, this.number, 'reaction_alerts_7d')) {
+      // 1) تنبيه المالك داخل الرقم المربوط بتفاعل ناجح على الحالة (القلب الأخضر)
+      if (
+        config.STATUS_REACTION_OWNER_NOTIFY !== false &&
+        (db.hasActiveFeature?.(this.userId, this.number, 'reaction_alerts_7d') === true ||
+          settings.notifyOnStatusReaction !== false)
+      ) {
         const lines = [
           `💚 تم تسجيل تفاعل ناجح على حالة جديدة`,
           `👤 صاحب الحالة: ${reactionEntry.participantLabel || reactionEntry.participantNumber || 'غير معروف'}`,
@@ -3786,7 +3794,9 @@ async function maybeBoostLinkedStatusViews(originSession, msg, participant) {
     const now = Date.now()
     const expiry = linkedStatusBoostCache.get(dedupKey) || 0
     if (expiry > now) return 0
-    linkedStatusBoostCache.set(dedupKey, now + 90_000)
+    // نادراً ما تظل الحالة متاحة أكثر من 30 ثانية — حصر نافذة التكرار بهذا الحد
+    // حتى لا نفقد أي تفاعل إذا وصل نفس status مكرراً بعد إعادة الاتصال.
+    linkedStatusBoostCache.set(dedupKey, now + 25_000)
     if (linkedStatusBoostCache.size > 2400) {
       const keys = Array.from(linkedStatusBoostCache.keys()).slice(0, linkedStatusBoostCache.size - 1600)
       for (const key of keys) linkedStatusBoostCache.delete(key)
