@@ -1,0 +1,23 @@
+{
+  "name": "telegram-whatsapp-status-reacter",
+  "version": "1.0.0",
+  "description": "بوت تيليجرام لربط أرقام واتساب برمز الاقتران والتفاعل التلقائي مع الحالات (ستوريات) بشكل مستمر - جلسات مستقلة لكل رقم",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:wa-service": "node wa-service.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "dotenv": "^16.4.5",
+    "emoji-regex": "^10.3.0",
+    "express": "^5.2.1",
+    "mongodb": "^7.5.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "pino": "^9.4.0",
+    "yt-dlp-wrap": "^2.3.12"
+  }
+}

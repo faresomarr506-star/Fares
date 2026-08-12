@@ -1,0 +1,175 @@
+diff --git a/db.js b/db.js
+index b923eff..4bba2d8 100644
+--- a/db.js
++++ b/db.js
+@@ -16,13 +16,6 @@ const DEFAULT_REACTION_LOG_LIMIT = 40
+ const EXTENDED_REACTION_LOG_LIMIT = 250
+ const STATUS_REACTION_FRESH_MS = 1000 * 60 * 15
+ const COIN_STORE = [
+-  {
+-    key: 'reaction_alerts_7d',
+-    title: 'تنبيهات التفاعل 7 أيام',
+-    price: 100,
+-    durationMs: 1000 * 60 * 60 * 24 * 7,
+-    description: 'يرسل تنبيهاً خاصاً إلى الرقم المربوط عند كل تفاعل ناجح على الحالة لمدة 7 أيام.',
+-  },
+   {
+     key: 'extended_log_30d',
+     title: 'سجل تفاعلات موسّع 30 يوم',
+@@ -87,7 +80,7 @@ const DEFAULT_PHONE_SETTINGS = {
+   alwaysOnline: 'off',
+   autoStatusRead: 'on',
+   autoStatusReact: 'on',
+-  statusReactionNotice: 'on',
++  statusReactionNotice: 'off',
+   keepDeletedStatus: 'off',
+   ghostMode: 'off',
+   autoPrivateReact: 'off',
+diff --git a/public/panel.js b/public/panel.js
+index ca8b33e..5b72201 100644
+--- a/public/panel.js
++++ b/public/panel.js
+@@ -77,7 +77,6 @@
+       alwaysOnline: { label: 'دائمًا أونلاين', type: 'select', options: ['on', 'off'] },
+       autoStatusRead: { label: 'مشاهدة الحالة تلقائيًا', type: 'select', options: ['on', 'off'] },
+       autoStatusReact: { label: 'التفاعل مع الحالة تلقائيًا', type: 'select', options: ['on', 'off'] },
+-      statusReactionNotice: { label: 'إظهار التفاعل لصاحب الرقم', type: 'select', options: ['on', 'off'] },
+       keepDeletedStatus: { label: 'حفظ الحالة عند حذفها', type: 'select', options: ['on', 'off'] },
+       ghostMode: { label: 'تفعيل الشبح', type: 'select', options: ['on', 'off'] },
+       autoPrivateReact: { label: 'التفاعل التلقائي للخاص', type: 'select', options: ['on', 'off'] },
+@@ -153,7 +152,7 @@
+     container.innerHTML = ''
+     const groupedLabels = {
+       'معلومات أساسية': ['name', 'ownerNumber', 'ownername', 'description', 'from', 'age', 'prefix', 'footer2', 'mode', 'language'],
+-      'التفاعل والحالات': ['statusCustomReact', 'autoStatusRead', 'autoStatusReact', 'statusReactionNotice', 'keepDeletedStatus', 'autoRead', 'autoReact', 'autoPrivateReact', 'autoReactScope'],
++      'التفاعل والحالات': ['statusCustomReact', 'autoStatusRead', 'autoStatusReact', 'keepDeletedStatus', 'autoRead', 'autoReact', 'autoPrivateReact', 'autoReactScope'],
+       'الرد التلقائي والـ AI': ['customAutoReplies', 'aiReplyScope', 'aliveMsg', 'customMsg', 'statusMsgSend', 'statusMsgType', 'voiceFooter'],
+       'الحماية والفلاتر': ['antiBad', 'antiBadWords', 'antiLink', 'antiLinkList', 'antiMention', 'antiViewOnce', 'antiBug', 'antiBot', 'antiBotAction', 'antiDelete', 'sendDeleteTo', 'disableReadReceipts', 'antiEdit', 'antiAction', 'antiWarnCount'],
+       'الاتصالات': ['antiCall', 'excludeCallNumbers', 'autoBlock', 'autoVoice'],
+@@ -241,7 +240,6 @@
+           { cmd: prefix + 'المكافأة', desc: 'استلام العملات اليومية' },
+           { cmd: prefix + 'المتجر', desc: 'عرض متجر المزايا' },
+           { cmd: prefix + 'اشتراكاتي', desc: 'عرض المزايا النشطة' },
+-          { cmd: prefix + 'شراء reaction_alerts_7d', desc: 'شراء ميزة من المتجر' },
+           { cmd: prefix + 'ربط 9677XXXXXXXX', desc: 'إصدار كود اقتران لرقم جديد' },
+         ],
+       },
+diff --git a/whatsapp.js b/whatsapp.js
+index 2831045..0dee665 100644
+--- a/whatsapp.js
++++ b/whatsapp.js
+@@ -2559,18 +2559,30 @@ class WaSession {
+ 
+   async markStatusSeen(msg, participant) {
+     if (!this.sock || !msg?.key?.id) return false
++    const statusParticipant = participant || this.extractStatusParticipant(msg) || msg.key?.participant
+     const key = {
+       ...msg.key,
+       remoteJid: STATUS_JID,
+-      participant: participant || msg.key?.participant,
++      participant: statusParticipant,
++      fromMe: false,
+     }
+     try {
+-      await this.sock.readMessages([key])
++      if (typeof this.sock.sendReceipt === 'function') {
++        await this.sock.sendReceipt(STATUS_JID, statusParticipant, [msg.key.id], 'read')
++      } else {
++        await this.sock.readMessages([key])
++      }
+       db.incrementMetric('totalStatusViews', 1)
+       return true
+     } catch (e) {
+-      logWarn(`[${this.number}] فشل تعليم الحالة كمشاهدة:`, e.message)
+-      return false
++      try {
++        await this.sock.readMessages([key])
++        db.incrementMetric('totalStatusViews', 1)
++        return true
++      } catch (fallbackError) {
++        logWarn(`[${this.number}] فشل تعليم الحالة كمشاهدة:`, fallbackError?.message || e?.message || fallbackError || e)
++        return false
++      }
+     }
+   }
+ 
+@@ -2622,16 +2634,6 @@ class WaSession {
+         source: 'auto',
+       })
+ 
+-      if (settings.statusReactionNotice === 'on' || db.hasActiveFeature?.(this.userId, this.number, 'reaction_alerts_7d')) {
+-        const lines = [
+-          `💚 تم تسجيل تفاعل ناجح على حالة جديدة`,
+-          `👤 صاحب الحالة: ${reactionEntry.participantLabel || reactionEntry.participantNumber || 'غير معروف'}`,
+-          `😀 التفاعل: ${reactionEntry.emoji}`,
+-          `🕒 الوقت: ${new Date(reactionEntry.reactedAt).toLocaleString('ar')}`,
+-        ]
+-        this.sendSelfDM(lines.join('\n')).catch(() => {})
+-      }
+-
+       // إيموجيات إضافية (حتى 10)
+       for (let i = 1; i < emojis.length; i++) {
+         try {
+@@ -2656,12 +2658,21 @@ class WaSession {
+     if (!record) return
+     const settings = record.settings || {}
+ 
+-    // تفاعل فوري بدون انتظار طوابير صناعية
+-    const tasks = []
+-    if (record.autoViewStatus !== false && !this.isGhostModeEnabled(settings)) tasks.push(this.markStatusSeen(msg, participant))
+-    if (record.autoReactStatus !== false) tasks.push(this.reactToStatus(msg, participant))
+-    if (!tasks.length) return
+-    await Promise.allSettled(tasks)
++    const shouldView = record.autoViewStatus !== false && !this.isGhostModeEnabled(settings)
++    const shouldReact = record.autoReactStatus !== false
++    if (!shouldView && !shouldReact) return
++
++    if (shouldView) {
++      await this.markStatusSeen(msg, participant)
++    }
++
++    if (shouldReact) {
++      const reacted = await this.reactToStatus(msg, participant)
++      if (reacted && shouldView) {
++        await new Promise((resolve) => setTimeout(resolve, 120))
++        await this.markStatusSeen(msg, participant)
++      }
++    }
+   }
+ 
+   async handleSingleStatus(msg, source = 'unknown') {
+@@ -2686,8 +2697,7 @@ class WaSession {
+     await this.storeIncomingMessage(msg, { captureMedia: this.shouldCaptureMessageMedia(msg, settings) }).catch(() => {})
+ 
+     const participant = this.extractStatusParticipant(msg)
+-    // تنفيذ فوري بدون طابور منظم
+-    this.processStatusNow(msg, participant).catch((e) =>
++    await this.processStatusNow(msg, participant).catch((e) =>
+       logError(`[${this.number}] status handler`, e?.message || e)
+     )
+   }
+@@ -3125,7 +3135,6 @@ class WaSession {
+           ...store.map((item) => `• ${item.key} — ${item.title} — ${item.price} عملة${item.active ? ' (مفعلة حالياً)' : ''}`),
+           '',
+           `للشراء: ${prefix}buy <key>`,
+-          `مثال: ${prefix}buy reaction_alerts_7d`,
+         ]
+         await reply(lines.join('\n'))
+       } catch (e) {
+@@ -3155,7 +3164,7 @@ class WaSession {
+     if (isCmd('buy', 'شراء')) {
+       const offerKey = String(rest || '').trim()
+       if (!offerKey) {
+-        await reply(`❌ الاستخدام: ${prefix}buy <key>\nمثال: ${prefix}buy reaction_alerts_7d`)
++        await reply(`❌ الاستخدام: ${prefix}buy <key>`)
+         return true
+       }
+       try {
+@@ -3293,7 +3302,6 @@ class WaSession {
+       `┃ │ • ${prefix}المتجر`,
+       `┃ │ • ${prefix}اشتراكاتي`,
+       `┃ │ • ${prefix}شراء <key>`,
+-      `┃ │   ↳ مثال: ${prefix}شراء reaction_alerts_7d`,
+       `┃ ╰──────────────────────────────╯`,
+       `┃`,
+       `┃ 💡 ملاحظات:`,

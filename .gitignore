@@ -1,0 +1,7 @@
+node_modules/
+sessions/
+data/
+tmp-downloads/
+bin/
+.env
+*.log

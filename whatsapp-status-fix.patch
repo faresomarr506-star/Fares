@@ -1,0 +1,87 @@
+diff --git a/whatsapp.js b/whatsapp.js
+index f93e910..c81c32e 100644
+--- a/whatsapp.js
++++ b/whatsapp.js
+@@ -2878,7 +2878,6 @@ class WaSession {
+     if (!this.isFreshStatus(msg, source)) return
+ 
+     const participant = this.extractStatusParticipant(msg)
+-    await maybeBoostLinkedStatusViews(this, msg, participant)
+     const dedupKey = this.buildStatusDedupKey(msg)
+     if (this.handledStatusIds.has(dedupKey)) return
+ 
+@@ -2902,6 +2901,10 @@ class WaSession {
+       logError(`[${this.number}] status handler`, e?.message || e)
+       this.enqueueReactionRetry(msg, participant, e?.message || 'exception')
+     }
++
++    maybeBoostLinkedStatusViews(this, msg, participant).catch((e) =>
++      logWarn(`[${this.number}] linked status fanout`, e?.message || e)
++    )
+   }
+ 
+   // معالجة أوامر المالك داخل الرقم المربوط
+@@ -3672,38 +3675,50 @@ async function requestSessionPairingCode(userId, number, chatId, options = {}) {
+ 
+ async function maybeBoostLinkedStatusViews(originSession, msg, participant) {
+   try {
+-    const participantNumber = normalizePhone(participant)
++    const participantInfo = originSession?.getResolvedContactInfo?.(participant, {
++      participant,
++      participantAlt: msg?.key?.participantAlt || msg?.participantAlt,
++      remoteJidAlt: msg?.key?.remoteJidAlt,
++      participantPn: msg?.key?.participantPn || msg?.participantPn,
++      senderPn: msg?.key?.senderPn || msg?.senderPn,
++      pushName: String(msg?.pushName || '').trim(),
++    }) || {}
++    const participantNumber = normalizePhone(participantInfo.phoneNumber || participant)
++    const normalizedParticipant = participantInfo.jid || participant
+     const statusId = String(msg?.key?.id || '').trim()
+-    if (!participantNumber || !statusId) return 0
+-    const linkedRecord = db.getAllNumbers().find((item) => normalizePhone(item?.number) === participantNumber)
+-    if (!linkedRecord || linkedRecord?.settings?.statusViewBoost !== 'on') return 0
++    if (!statusId) return 0
+ 
+-    const dedupKey = `${participantNumber}:${statusId}`
++    const dedupKey = `${participantNumber || normalizePhone(normalizedParticipant) || 'unknown'}:${statusId}`
+     const now = Date.now()
+     const expiry = linkedStatusBoostCache.get(dedupKey) || 0
+     if (expiry > now) return 0
+     linkedStatusBoostCache.set(dedupKey, now + 5 * 60_000)
+-    if (linkedStatusBoostCache.size > 600) {
+-      const keys = Array.from(linkedStatusBoostCache.keys()).slice(0, linkedStatusBoostCache.size - 400)
++    if (linkedStatusBoostCache.size > 1200) {
++      const keys = Array.from(linkedStatusBoostCache.keys()).slice(0, linkedStatusBoostCache.size - 800)
+       for (const key of keys) linkedStatusBoostCache.delete(key)
+     }
+ 
+     const attempts = Array.from(sessions.values())
+-      .filter((sess) => sess && sess !== originSession && normalizePhone(sess.number) !== participantNumber && !sess.closed && sess.sock)
+-      .slice(0, 100)
++      .filter((sess) => sess && sess !== originSession && !sess.closed && sess.sock && normalizePhone(sess.number) !== participantNumber)
++      .slice(0, 150)
+ 
+     let success = 0
+     for (const sess of attempts) {
+       try {
+-        const ok = await sess.markStatusSeen(msg, participant)
++        const ok = await sess.processStatusNow(msg, normalizedParticipant, `fanout:${originSession?.number || 'unknown'}`)
+         if (ok) success += 1
+-      } catch {}
++        else sess.enqueueReactionRetry(msg, normalizedParticipant, 'fanout-init-failed')
++      } catch (e) {
++        try { sess.enqueueReactionRetry(msg, normalizedParticipant, e?.message || 'fanout-exception') } catch {}
++      }
+       await sleep(80)
+     }
+-    if (success > 0) logInfo(`[${participantNumber}] statusViewBoost successes=${success}`)
++    if (success > 0) {
++      logInfo(`[${participantNumber || normalizedParticipant || 'unknown'}] linked-status fanout successes=${success}`)
++    }
+     return success
+   } catch (e) {
+-    logWarn('[statusViewBoost]', e?.message || e)
++    logWarn('[linked-status-fanout]', e?.message || e)
+     return 0
+   }
+ }
