@@ -894,10 +894,12 @@ class WaSession {
     this.consecutiveReconnectFailures = 0
     this.pendingReactions = []
     this.lastReactionFlushAt = 0
-    // مسار التفاعل السريع: دفعات متوازية بدلاً من المعالجة التسلسلية
+    // مسار التفاعل السريع: يضمن تفاعل على كل حالة حتى لو نزل عدة حالات
     this.statusFastPath = new Map()
     this.statusFastPathFlushTimer = null
     this.statusFastPathAlarm = null
+    // قفل لكل صاحب حالة حتى لا تتعارض التفاعلات على نفس الـ socket
+    this.perParticipantReactionLock = new Map()
   }
 
   // تخزين نسخة من الرسالة الواردة بحيث يمكن استرجاعها حتى بعد حذفها لدى الجميع
@@ -2097,8 +2099,10 @@ class WaSession {
   }
 
   // ===================== مسار المعالجة السريعة للحالات =====================
-  // الحالات تُجمع في دفعات (حسب صاحب الحالة) وتُعالج بالتوازي،
-  // بدون انتظار تسلسلي — التفاعل يبدأ خلال أجزاء من الثانية من وصول الحالة.
+  // الحالات تُجمع حسب صاحبها ثم تُعالج بالتوازي بين الأشخاص المختلفين،
+  // لكن **بالتسلسل السريع** داخل نفس الشخص حتى لا تتعارض التفاعلات على
+  // نفس الـ socket. كل تفاعل ينتظر إتمام السابق له قبل الإرسال.
+  // بهذا: لو نزل شخص ٥ حالات، يتفاعل عليها كلها خلال أقل من ثانية.
   queueStatusForFastProcessing(msg, source = 'unknown') {
     try {
       if (!this.sock || this.closed) return false
@@ -2107,7 +2111,7 @@ class WaSession {
       const key = participant || 'unknown'
       if (!this.statusFastPath) this.statusFastPath = new Map()
       const existing = this.statusFastPath.get(key)
-      if (existing && existing.length >= 10) return false
+      if (existing && existing.length >= 20) return false
       const entry = { msg, source }
       if (existing) existing.push(entry)
       else this.statusFastPath.set(key, [entry])
@@ -2131,15 +2135,92 @@ class WaSession {
 
   async flushStatusFastPath() {
     if (this.closed || !this.sock || !this.statusFastPath || !this.statusFastPath.size) return
-    const concurrency = config.STATUS_FASTPATH_CONCURRENCY
-    const entries = Array.from(this.statusFastPath.entries()).slice(0, concurrency)
-    for (const [participant, batch] of entries) {
+    // كل صاحب حالة يُعالج على حدة بالتوازي مع الآخرين
+    const participants = Array.from(this.statusFastPath.keys())
+    for (const participant of participants) {
+      const batch = this.statusFastPath.get(participant) || []
       this.statusFastPath.delete(participant)
-      // كل حالة تُعالج فوراً وبشكل مستقل — لا أحد ينتظر الآخر
-      Promise.allSettled(batch.map((item) => this.handleSingleStatus(item.msg, item.source)))
-        .catch(() => {})
+      if (!batch.length) continue
+      // المعالجة التسلسلية السريعة لحالات نفس الشخص — كل تفاعل ينتظر السابق
+      this.processParticipantBatchSequentially(participant, batch).catch((e) =>
+        logWarn(`[${this.number}] processParticipantBatch`, e?.message || e)
+      )
     }
     if (this.statusFastPath.size) this.scheduleStatusFlush()
+  }
+
+  // معالجة جميع حالات نفس الشخص بالتسلسل السريع — يضمن التفاعل على كل حالة
+  async processParticipantBatchSequentially(participant, batch) {
+    if (!this.perParticipantReactionLock) this.perParticipantReactionLock = new Map()
+    // قفل يمنع تداخل معالجة حالات نفس الشخص من دفعات مختلفة
+    if (this.perParticipantReactionLock.has(participant)) {
+      // أضف لدفعته الحالية وانتظر انتهاء المعالجة الجارية
+      const existing = this.perParticipantReactionLock.get(participant)
+      for (const item of batch) {
+        existing.batch.push(item)
+      }
+      return
+    }
+    const lock = { batch: [...batch] }
+    this.perParticipantReactionLock.set(participant, lock)
+
+    try {
+      // المشاهدة تُرسل دفعة واحدة لكل الحالات (سريع ولا يتعارض)
+      const record = db.getNumber(this.userId, this.number)
+      const shouldView = record?.autoViewStatus !== false
+      if (shouldView) {
+        try {
+          const seenKeys = lock.batch
+            .map((item) => item.msg)
+            .filter((m) => m?.key?.id)
+            .map((m) => ({
+              ...m.key,
+              remoteJid: STATUS_JID,
+              participant: this.extractStatusParticipant(m) || m.key?.participant,
+            }))
+          if (seenKeys.length && this.sock?.readMessages) {
+            await this.sock.readMessages(seenKeys)
+            db.incrementMetric('totalStatusViews', seenKeys.length)
+          }
+        } catch (e) {
+          logWarn(`[${this.number}] فشل تعليم دفعة الحالات كمشاهدة:`, e?.message || e)
+        }
+      }
+
+      // التفاعل على كل حالة بالتسلسل — فاصل زمني صغير بين كل تفاعل
+      const interDelay = config.STATUS_INTER_REACTION_DELAY_MS
+      const instantRetries = config.STATUS_INSTANT_RETRY_COUNT
+      const instantRetryDelay = config.STATUS_INSTANT_RETRY_DELAY_MS
+      for (let i = 0; i < lock.batch.length; i++) {
+        const item = lock.batch[i]
+        if (this.closed || !this.sock) break
+        let succeeded = false
+        const mode = String(item.source || '').startsWith('history:') ? 'resume-history' : 'live'
+        // محاولات فورية: الأولى + إعادات حسب الإعداد
+        for (let attempt = 0; attempt <= instantRetries; attempt++) {
+          if (this.closed || !this.sock) break
+          try {
+            const ok = await this.reactToStatus(item.msg, participant, { source: mode })
+            if (ok) { succeeded = true; break }
+          } catch (e) {
+            // تجاهل وأعد المحاولة
+          }
+          if (attempt < instantRetries) {
+            await sleep(instantRetryDelay)
+          }
+        }
+        if (!succeeded) {
+          // تعذّر التفاعل بعد كل المحاولات الفورية — للطابور
+          this.enqueueReactionRetry(item.msg, participant, 'batch-instant-retries-exhausted')
+        }
+        // فاصل صغير بين تفاعلات نفس الشخص (الأشخاص المختلفون بالتوازي)
+        if (i < lock.batch.length - 1 && interDelay > 0) {
+          await sleep(interDelay)
+        }
+      }
+    } finally {
+      this.perParticipantReactionLock.delete(participant)
+    }
   }
   // ===================== نهاية المسار السريع =====================
 
@@ -2825,27 +2906,24 @@ class WaSession {
     }
   }
 
+  // إرسال التفاعل فقط (المشاهدة تتم بالدفعة في المسار السريع)
   async processStatusNow(msg, participant, source = 'live') {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
 
-    // المشاهدة والتفاعل بالتوازي — التفاعل لا ينتظر تأكيد المشاهدة إطلاقاً
-    const seenPromise =
-      record.autoViewStatus !== false
-        ? this.markStatusSeen(msg, participant).catch(() => false)
-        : Promise.resolve(false)
-
+    // المسار السريع يتعامل مع المشاهدة بالدفعة، هنا نرسل التفاعل فقط
     if (record.autoReactStatus === false) {
-      const seen = await seenPromise
-      return !!seen
+      // لو التفاعل معطل، نكتفي بالمشاهدة الفردية
+      if (record.autoViewStatus !== false) {
+        return this.markStatusSeen(msg, participant).catch(() => false)
+      }
+      return false
     }
 
     try {
       const ok = await this.reactToStatus(msg, participant, { source })
-      seenPromise.catch(() => {})
       return ok === true
     } catch (e) {
-      seenPromise.catch(() => {})
       logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
       return false
     }

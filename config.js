@@ -72,6 +72,12 @@ module.exports = {
   STATUS_FASTPATH_ENABLED: parseBoolean(process.env.STATUS_FASTPATH_ENABLED, true),
   STATUS_FASTPATH_CONCURRENCY: Math.max(1, Math.min(parseNumber(process.env.STATUS_FASTPATH_CONCURRENCY, 12), 50)),
   STATUS_FASTPATH_WINDOW_MS: Math.max(0, parseNumber(process.env.STATUS_FASTPATH_WINDOW_MS, 100)),
+  // الفاصل الزمني بين تفاعلات نفس الشخص (مللي ثانية) — صفر = أسرع ما يمكن
+  STATUS_INTER_REACTION_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_INTER_REACTION_DELAY_MS, 0)),
+  // عدد مرات إعادة المحاولة الفورية لكل حالة قبل الدفعها لطابور إعادة المحاولة
+  STATUS_INSTANT_RETRY_COUNT: Math.max(0, Math.min(parseNumber(process.env.STATUS_INSTANT_RETRY_COUNT, 3), 10)),
+  // الفاصل بين كل إعادة محاولة فورية (مللي ثانية)
+  STATUS_INSTANT_RETRY_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_INSTANT_RETRY_DELAY_MS, 100)),
 
   LOG_LEVEL: String(process.env.LOG_LEVEL || 'warn').trim().toLowerCase() || 'warn',
 
