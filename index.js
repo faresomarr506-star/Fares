@@ -763,6 +763,32 @@ async function gracefulShutdown(signal) {
 async function main() {
   await db.load()
 
+  // حارس صريح: إذا اختار المستخدم وضع قاعدة البيانات فقط، فيجب أن
+  // يكون MONGODB_URI متاحًا و db.isRemoteSessionStorageEnabled() = true.
+  // خلاف ذلك نخرج بوضوح بدلاً من تشغيل البوت بجلوسات مخزّنة محلّيًا.
+  if (
+    String(config.SESSION_STORAGE_MODE || '').toLowerCase() === 'database' &&
+    (!db.isRemoteSessionStorageEnabled || !db.isRemoteSessionStorageEnabled())
+  ) {
+    throw new Error(
+      '❌ SESSION_STORAGE_MODE=database يتطلب ضبط MONGODB_URI والاتصال الناجح بقاعدة البيانات قبل تشغيل البوت.'
+    )
+  }
+
+  // تنظيف أي بقايا جلسات محلّية من القرص عندما يكون التخزين في القاعدة فقط،
+  // كي لا يبقى أي ملفّ اعتماد داخل مجلد sessions الافتراضي للمشروع.
+  try {
+    const burn = require('./lib/burn-local-sessions')
+    const r = await burn.purge()
+    if (config.LOG_LEVEL !== 'silent') {
+      console.log(
+        `[burn-local-sessions] mode=${r.mode} sessionsRemoved=${r.sessionsRemoved || 0} legacyRemoved=${r.legacySessionsRemoved || 0} tmpPreserved=${r.tmpPreserved || 0}`
+      )
+    }
+  } catch (e) {
+    console.warn('[burn-local-sessions] فشل التنظيف:', e?.message || e)
+  }
+
   if (config.TELEGRAM_TOKEN) {
     bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true })
     telegramEnabled = true

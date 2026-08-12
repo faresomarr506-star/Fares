@@ -2256,7 +2256,7 @@ class WaSession {
       printQRInTerminal: false,
       browser: getBrowserProfile(),
       logger: pino({ level: 'silent' }),
-      markOnlineOnConnect: false,
+      markOnlineOnConnect: true,
       syncFullHistory: false,
       fireInitQueries: isRegistered,
       keepAliveIntervalMs: 20_000,
@@ -3574,7 +3574,20 @@ async function resumeAll() {
   const restorable = []
 
   for (const item of all) {
-    const hasAuth = await authStateExists(item.userId, item.number)
+    let hasAuth = await authStateExists(item.userId, item.number)
+
+    // ملاحظة: لو الملفّات المحلية اختفت من القرص (WRITE_LOCAL_STATE_CACHE=false) فحفظ
+    // اعتماد الجلسة يبقى محفوظًا في القاعدة. لا نحذف الرقم بسبب غياب ملفّ القرص،
+    // بل نضمن أن قاعدة البيانات تحتوي اعتمادًا حيًّا قبل إزالته من السجلّ.
+    if (!hasAuth && db.isRemoteSessionStorageEnabled && db.isRemoteSessionStorageEnabled()) {
+      const sessionId = sessionKeys.authSessionIdFor(item.userId, item.number)
+      const legacySessionId = sessionKeys.legacyAuthSessionIdFor(item.number)
+      const remoteAuth =
+        (await db.hasWaAuthSession?.(sessionId)) ||
+        (await db.hasWaAuthSession?.(legacySessionId))
+      if (remoteAuth) hasAuth = true
+    }
+
     if (!hasAuth) {
       db.removeNumber(item.userId, item.number)
       logWarn(`[استعادة] لا توجد بيانات جلسة محفوظة للرقم ${item.number} — تم حذف الرقم من القاعدة`)
