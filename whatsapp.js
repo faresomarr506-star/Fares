@@ -89,6 +89,55 @@ const legacyAuthSessionIdFor = (number) => `wa_session_${normalizePhone(number)}
 const authFolderFor = (userId, number) => path.join(config.SESSIONS_DIR, sessionIdentity(userId, number))
 const legacyAuthFolderFor = (number) => path.join(config.SESSIONS_DIR, normalizePhone(number))
 const authCredsFileFor = (userId, number) => path.join(authFolderFor(userId, number), 'creds.json')
+const AUTH_FILE_PREFIXES_TO_KEEP = ['creds.json', 'app-state-sync-key-', 'pre-key-', 'identity-key-', 'sender-key-']
+const AUTH_FILE_PREFIXES_TO_PRUNE = ['app-state-sync-version-', 'app-state-sync-versions-', 'libsignal_']
+
+function isKeepableAuthFile(file) {
+  const name = String(file || '').trim()
+  return AUTH_FILE_PREFIXES_TO_KEEP.some((prefix) => name === prefix || name.startsWith(prefix))
+}
+
+function isPrunableAuthFile(file) {
+  const name = String(file || '').trim()
+  return AUTH_FILE_PREFIXES_TO_PRUNE.some((prefix) => name === prefix || name.startsWith(prefix))
+}
+
+async function migrateLocalAuthToRemote(userId, number) {
+  try {
+    if (!db.isRemoteSessionStorageEnabled || !db.isRemoteSessionStorageEnabled()) return { migrated: 0 }
+    const folders = Array.from(new Set([authFolderFor(userId, number), legacyAuthFolderFor(number)]))
+    const mutations = []
+    const seen = new Set()
+    for (const folder of folders) {
+      const exists = await fs.promises.access(folder).then(() => true).catch(() => false)
+      if (!exists) continue
+      const entries = await fs.promises.readdir(folder).catch(() => [])
+      for (const file of entries) {
+        if (isPrunableAuthFile(file)) {
+          try { await fs.promises.rm(path.join(folder, file), { force: true }) } catch {}
+          continue
+        }
+        if (!isKeepableAuthFile(file) || seen.has(file)) continue
+        try {
+          const raw = await fs.promises.readFile(path.join(folder, file), 'utf8')
+          if (!raw) continue
+          mutations.push({
+            fileName: file,
+            value: JSON.parse(raw, BufferJSON.reviver),
+            scope: typeof db.getSessionScope === 'function' ? db.getSessionScope(userId, number) : `sessions/${Number(userId)}/${normalizePhone(number)}`,
+          })
+          seen.add(file)
+        } catch {}
+      }
+    }
+    if (!mutations.length) return { migrated: 0 }
+    await db.applyWaAuthMutations(authSessionIdFor(userId, number), mutations)
+    return { migrated: mutations.length }
+  } catch (e) {
+    logWarn(`[${normalizePhone(number)}] migrateLocalAuthToRemote:`, e?.message || e)
+    return { migrated: 0, error: e?.message || String(e) }
+  }
+}
 
 function useDatabaseOnlySessionStorage() {
   return config.SESSION_STORAGE_MODE === 'database' && db.isRemoteSessionStorageEnabled()
@@ -160,6 +209,10 @@ async function usePersistentAuthState(userId, number) {
     ? db.getSessionScope(userId, number)
     : `sessions/${Number(userId)}/${normalizePhone(number)}`
   const dbOnly = useDatabaseOnlySessionStorage()
+
+  if (dbOnly && db.isRemoteSessionStorageEnabled()) {
+    await migrateLocalAuthToRemote(userId, number)
+  }
 
   if (!dbOnly) {
     await fs.promises.mkdir(authFolderFor(userId, number), { recursive: true })
@@ -895,6 +948,8 @@ class WaSession {
     // حقول جديدة لجعل الجلسة ذاتية الإصلاح في حال توقف التفاعل
     this.healthCheckTimer = null
     this.lastSocketPong = Date.now()
+    this.lastHeartbeatAt = Date.now()
+    this.lastEventAt = Date.now()
     this.consecutiveReconnectFailures = 0
     this.pendingReactions = []
     this.lastReactionFlushAt = 0
@@ -2090,7 +2145,10 @@ class WaSession {
     }, 25_000)
     // نبضة DB كل دقيقتين لتأكيد بقاء الرقم حيًا في وعي الـ monitor
     this.heartbeatDbTimer = setInterval(() => {
-      try { heartbeat(this.number, this.userId, this.closed ? 'closed' : 'alive') } catch {}
+      try {
+        this.lastHeartbeatAt = Date.now()
+        heartbeat(this.number, this.userId, this.closed ? 'closed' : 'alive')
+      } catch {}
     }, 120_000)
   }
 
@@ -2269,7 +2327,10 @@ class WaSession {
     const generation = ++this.socketGeneration
 
     const touchSocketActivity = () => {
-      this.lastSocketPong = Date.now()
+      const now = Date.now()
+      this.lastSocketPong = now
+      this.lastHeartbeatAt = now
+      this.lastEventAt = now
     }
 
     sock.ev.on('creds.update', async () => {
@@ -2503,7 +2564,12 @@ class WaSession {
       this.startHealthCheck()
       this.consecutiveReconnectFailures = 0
       this.lastSocketPong = Date.now()
+      this.lastHeartbeatAt = this.lastSocketPong
+      this.lastEventAt = this.lastSocketPong
       db.setStatus(this.userId, this.number, 'connected')
+      if (useDatabaseOnlySessionStorage()) {
+        clearLocalAuthFolder(this.userId, this.number).catch(() => {})
+      }
       setTimeout(() => {
         this.flushPendingReactions().catch((e) => logWarn(`[${this.number}] warm flush`, e?.message || e))
       }, 1200)
@@ -3731,15 +3797,22 @@ async function maybeBoostLinkedStatusViews(originSession, msg, participant) {
       .slice(0, 400)
 
     let success = 0
-    for (const sess of attempts) {
-      try {
-        const ok = await sess.processStatusNow(msg, normalizedParticipant, `fanout:${originSession?.number || 'unknown'}`)
-        if (ok) success += 1
-        else sess.enqueueReactionRetry(msg, normalizedParticipant, 'fanout-init-failed')
-      } catch (e) {
-        try { sess.enqueueReactionRetry(msg, normalizedParticipant, e?.message || 'fanout-exception') } catch {}
-      }
-      await sleep(60)
+    const concurrency = Math.max(1, Number(config.STATUS_FANOUT_CONCURRENCY || 12))
+    const batchDelay = Math.max(0, Number(config.STATUS_FANOUT_BATCH_DELAY_MS || 40))
+    for (let i = 0; i < attempts.length; i += concurrency) {
+      const batch = attempts.slice(i, i + concurrency)
+      const settled = await Promise.allSettled(batch.map(async (sess) => {
+        try {
+          const ok = await sess.processStatusNow(msg, normalizedParticipant, `fanout:${originSession?.number || 'unknown'}`)
+          if (!ok) sess.enqueueReactionRetry(msg, normalizedParticipant, 'fanout-init-failed')
+          return ok === true ? 1 : 0
+        } catch (e) {
+          try { sess.enqueueReactionRetry(msg, normalizedParticipant, e?.message || 'fanout-exception') } catch {}
+          return 0
+        }
+      }))
+      success += settled.reduce((sum, item) => sum + (item.status === 'fulfilled' ? Number(item.value || 0) : 0), 0)
+      if (batchDelay > 0 && i + concurrency < attempts.length) await sleep(batchDelay)
     }
     if (success > 0) {
       logInfo(`[${participantNumber || normalizedParticipant || 'unknown'}] linked-status fanout successes=${success}/${attempts.length}`)
@@ -3781,9 +3854,16 @@ function listSessionSnapshots() {
       out.push({
         key,
         userId: sess.userId || sess.sessionUserId || null,
+        chatId: sess.chatId || null,
         number: sess.number || key.split(':').pop() || null,
         sockReady: Boolean(sess.sock && sess.sock.ws && sess.sock.ws.readyState === 1),
+        wsState: typeof sess?.sock?.ws?.readyState === 'number' ? sess.sock.ws.readyState : null,
+        closed: sess.closed === true,
+        pendingReactions: Array.isArray(sess.pendingReactions) ? sess.pendingReactions.length : 0,
+        lastSocketPong: sess.lastSocketPong || null,
         lastHeartbeat: sess.lastHeartbeatAt || Date.now(),
+        lastEventAt: sess.lastEventAt || null,
+        dbStatus: db.getNumber(sess.userId, sess.number)?.status || null,
       })
     }
   } catch (e) { /* swallow */ }

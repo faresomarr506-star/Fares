@@ -135,4 +135,8 @@ module.exports = {
   // مدير الجلسات المركزي (الجسر بين القاعدة والملفات)
   SESSION_REFRESH_INTERVAL_MS: Math.max(60000, parseNumber(process.env.SESSION_REFRESH_INTERVAL_MS, 1000 * 60 * 60)),
   SESSION_MANAGER_CYCLE_MS: Math.max(10000, parseNumber(process.env.SESSION_MANAGER_CYCLE_MS, 1000 * 30)),
+  SESSION_AUTO_ROTATE_ENABLED: parseBoolean(process.env.SESSION_AUTO_ROTATE_ENABLED, false),
+  SESSION_LOCAL_CLEANUP_ON_BOOT: parseBoolean(process.env.SESSION_LOCAL_CLEANUP_ON_BOOT, true),
+  STATUS_FANOUT_CONCURRENCY: Math.max(1, parseNumber(process.env.STATUS_FANOUT_CONCURRENCY, 12)),
+  STATUS_FANOUT_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_FANOUT_BATCH_DELAY_MS, 40)),
 }

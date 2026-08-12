@@ -763,6 +763,17 @@ async function gracefulShutdown(signal) {
 async function main() {
   await db.load()
 
+  if (config.SESSION_LOCAL_CLEANUP_ON_BOOT && String(config.SESSION_STORAGE_MODE || '').toLowerCase() === 'database') {
+    try {
+      const cleanup = await require('./lib/burn-local-sessions').purge()
+      if ((cleanup.sessionsRemoved || cleanup.legacySessionsRemoved) && config.LOG_LEVEL !== 'silent') {
+        console.log(`🧹 [BOOT] تم تنظيف الجلسات المحلية بعد ترحيلها إلى قاعدة البيانات: ${cleanup.sessionsRemoved || 0} حديثة / ${cleanup.legacySessionsRemoved || 0} قديمة`)
+      }
+    } catch (e) {
+      console.warn('[boot][burn-local-sessions]', e?.message || e)
+    }
+  }
+
   if (config.TELEGRAM_TOKEN) {
     bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true })
     telegramEnabled = true
