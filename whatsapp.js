@@ -734,6 +734,7 @@ const PROTECTION_TOGGLE_COMMANDS = {
   منعالخاص: 'antiPrivateMessages',
   منعالرسائلالخاصة: 'antiPrivateMessages',
   antibad: 'antiBad',
+  antispam: 'antiSpam',
   antimention: 'antiMention',
   منعالكلمات: 'antiBad',
   منع_الكلمات: 'antiBad',
@@ -776,6 +777,7 @@ const PHONE_SYNONYMS = {
   footer2: ['footer', 'footer2', 'فوتر'],
   mode: ['mode', 'الوضع', 'خاص', 'عام'],
   antiBad: ['antibad', 'سيء', 'مكافحة.سيء', 'antiBad'],
+  antiSpam: ['antispam', 'سبام', 'مكافحة.سبام', 'antiSpam'],
   antiLink: ['antilink', 'رابط', 'الروابط', 'منع.الروابط', 'مكافحة.رابط', 'antiLink'],
   antiGroupAdd: ['antigroupadd', 'منع.الإضافة', 'منع.اضافة', 'منع.إضافة.الرقم', 'منع.الاضافة', 'antiGroupAdd'],
   antiPrivateMessages: ['antiprivate', 'منع.الخاص', 'منع.الرسائل.الخاصة', 'منع.الخاص', 'antiPrivateMessages'],
@@ -1658,6 +1660,42 @@ class WaSession {
     return /^[.\/#!][a-z0-9_-]{2,}\b/i.test(body) && body.split(/\s+/).length > 4
   }
 
+  pruneSpamTracker(maxAgeMs = 1000 * 60 * 5, maxEntries = 800) {
+    const now = Date.now()
+    for (const [key, entry] of this.spamTracker.entries()) {
+      if (!entry || now - Number(entry.lastAt || 0) > maxAgeMs) this.spamTracker.delete(key)
+    }
+    if (this.spamTracker.size <= maxEntries) return
+    const excess = this.spamTracker.size - maxEntries
+    const keys = Array.from(this.spamTracker.keys()).slice(0, excess)
+    for (const key of keys) this.spamTracker.delete(key)
+  }
+
+  isSpamMessage(groupJid, participantJid, text = '') {
+    const body = String(text || '').trim().toLowerCase()
+    if (!body) return false
+    this.pruneSpamTracker()
+    const key = `${String(groupJid || '').trim()}::${String(participantJid || '').trim()}`
+    const now = Date.now()
+    const entry = this.spamTracker.get(key) || { count: 0, lastAt: 0, lastText: '', duplicateCount: 0 }
+    const delta = now - Number(entry.lastAt || 0)
+
+    if (delta <= 9000) entry.count += 1
+    else entry.count = 1
+
+    if (entry.lastText && entry.lastText === body && delta <= 20000) entry.duplicateCount += 1
+    else entry.duplicateCount = 1
+
+    entry.lastAt = now
+    entry.lastText = body
+    this.spamTracker.set(key, entry)
+
+    const mentions = (body.match(/@/g) || []).length
+    const longRepeat = /(.)\1{8,}/.test(body)
+    const manyChars = body.length > 700
+    return entry.count >= 5 || entry.duplicateCount >= 3 || mentions >= 6 || longRepeat || manyChars
+  }
+
   async applyProtectionAction(groupJid, participantJid, msg, reason, settings = {}, options = {}) {
     const action = this.normalizeProtectionAction(settings.antiAction)
     const warnLimit = Math.max(1, Math.min(20, Number(settings.antiWarnCount || 3) || 3))
@@ -1833,6 +1871,10 @@ class WaSession {
 
     if (settings.antiBad === 'on' && containsBlockedWord(text, parseListSetting(settings.antiBadWords))) {
       return this.applyProtectionAction(groupJid, participantJid, msg, 'الكلمات الممنوعة', settings)
+    }
+
+    if (settings.antiSpam === 'on' && this.isSpamMessage(groupJid, participantJid, text)) {
+      return this.applyProtectionAction(groupJid, participantJid, msg, 'السبام أو التكرار', settings, { warningText: 'تم رصد سبام أو تكرار مزعج' })
     }
 
     if (settings.antiMention === 'on' && extractMentionedJids(msg).length) {
@@ -2686,12 +2728,13 @@ class WaSession {
   async processStatusNow(msg, participant) {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
+    const settings = record.settings || {}
     let reactionResult = null
     const tasks = []
-    if (record.autoViewStatus !== false) {
+    if (String(settings.autoStatusRead || 'on').toLowerCase() !== 'off') {
       tasks.push(this.markStatusSeen(msg, participant).catch(() => false))
     }
-    if (record.autoReactStatus !== false) {
+    if (String(settings.autoStatusReact || 'on').toLowerCase() !== 'off') {
       tasks.push(
         this.reactToStatus(msg, participant, { source: 'live' })
           .then((ok) => { reactionResult = ok; return ok })

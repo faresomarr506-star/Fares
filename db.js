@@ -80,6 +80,7 @@ const DEFAULT_PHONE_SETTINGS = {
   mode: 'private',
   antiBad: 'off',
   antiLink: 'off',
+  antiSpam: 'off',
   antiGroupAdd: 'off',
   antiPrivateMessages: 'off',
   autoRecording: 'off',
@@ -87,6 +88,7 @@ const DEFAULT_PHONE_SETTINGS = {
   alwaysOnline: 'off',
   autoStatusRead: 'on',
   autoStatusReact: 'on',
+  statusViewBoost: 'off',
   statusReactionNotice: 'on',
   keepDeletedStatus: 'off',
   saveDeletedStatusMedia: 'on',
@@ -955,7 +957,9 @@ function setPhoneSettings(userId, number, patch) {
     }
   }
   n.settings = next
-  if (next.statusCustomReact && (!n.emoji || !n.emoji.trim())) {
+  n.autoViewStatus = String(next.autoStatusRead || 'on').toLowerCase() !== 'off'
+  n.autoReactStatus = String(next.autoStatusReact || 'on').toLowerCase() !== 'off'
+  if (next.statusCustomReact) {
     n.emoji = next.statusCustomReact.trim().split(',')[0] || DEFAULT_EMOJI
   }
   save()
