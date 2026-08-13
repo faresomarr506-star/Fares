@@ -1189,19 +1189,6 @@ function recordStatusReaction(userId, number, entry) {
   return { ...next }
 }
 
-function hasStatusReaction(userId, number, statusId, participantJid) {
-  const n = getNumber(userId, number)
-  if (!n) return false
-  ensureNumberWalletFields(n)
-  const targetStatusId = String(statusId || '').trim()
-  const targetParticipant = String(participantJid || '').trim()
-  if (!targetStatusId || !targetParticipant) return false
-  return (n.statusReactions || []).some((item) =>
-    String(item?.statusId || '').trim() === targetStatusId &&
-    String(item?.participantJid || '').trim() === targetParticipant
-  )
-}
-
 function getStatusReactionState(userId, number) {
   const n = getNumber(userId, number)
   if (!n) throw new Error('not_found')
@@ -1429,22 +1416,6 @@ async function getWaAuthFile(sessionId, fileName) {
   return deserializeAuthPayload(doc?.payload)
 }
 
-async function exposeCollectionsOnGlobal() {
-  if (!globalThis.__fares_bot_collections__) {
-    globalThis.__fares_bot_collections__ = { authCollection: null, sessionCollection: null, stateCollection: null }
-  }
-  if (authCollection) globalThis.__fares_bot_collections__.authCollection = authCollection
-  if (sessionCollection) globalThis.__fares_bot_collections__.sessionCollection = sessionCollection
-  if (stateCollection) globalThis.__fares_bot_collections__.stateCollection = stateCollection
-  return globalThis.__fares_bot_collections__
-}
-
-const _origApply = applyWaAuthMutations
-async function applyWaAuthMutationsWithExpose(sessionId, mutations) {
-  exposeCollectionsOnGlobal()
-  return _origApply(sessionId, mutations)
-}
-
 async function removeWaAuthFile(sessionId, fileName) {
   return applyWaAuthMutations(sessionId, [{ fileName, value: null }])
 }
@@ -1466,11 +1437,6 @@ async function hasWaAuthSession(sessionId) {
 function isMongoEnabled() {
   return Boolean(mongoDb && stateCollection && authCollection && sessionCollection)
 }
-
-function getAuthCollection() { return authCollection }
-function getSessionCollection() { return sessionCollection }
-function getStateCollection() { return stateCollection }
-function getMongoDb() { return mongoDb }
 
 function getDefaultPhoneSettings() {
   return { ...DEFAULT_PHONE_SETTINGS }
@@ -1556,7 +1522,6 @@ module.exports = {
   claimDailyCoins,
   purchaseCoinFeature,
   recordStatusReaction,
-  hasStatusReaction,
   getStatusReactionState,
   hasActiveFeature,
   getActiveFeatures,

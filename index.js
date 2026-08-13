@@ -745,7 +745,6 @@ async function gracefulShutdown(signal) {
   }, 8000)
 
   try {
-    try { require('./lib/session-manager').stop() } catch (e) { console.warn('[session-manager] فشل الإيقاف:', e?.message || e) }
     monitor.stop()
     await whatsapp.shutdownAll()
     await db.close()
@@ -771,10 +770,6 @@ async function main() {
   registerTelegramHandlers()
 
   web.startWebServer({ getRuntimeStats, monitor })
-  // تشغيل الفاحص الطبّي للجلسات بشكل دوري
-  try { require('./lib/session-doctor').start() } catch (e) { console.warn('[session-doctor] فشل التشغيل:', e?.message || e) }
-  // تشغيل مدير الجلسات المركزي (يربط كل الأرقام بالقاعدة ويحدّثها بنظافة مع الحفاظ على الإعدادات)
-  try { require('./lib/session-manager').start() } catch (e) { console.warn('[session-manager] فشل التشغيل:', e?.message || e) }
   await whatsapp.resumeAll()
   if (config.ALERT_ENABLED) {
     monitor.start()

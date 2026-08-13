@@ -52,32 +52,19 @@ module.exports = {
 
   REACT_DELAY_MIN: parseNumber(process.env.REACT_DELAY_MIN, 0),
   REACT_DELAY_MAX: parseNumber(process.env.REACT_DELAY_MAX, 0),
-  MAX_STATUS_AGE_MS: Math.max(1000, parseNumber(process.env.MAX_STATUS_AGE_MS, 90000)),
-  PROCESS_HISTORY_STATUSES: parseBoolean(process.env.PROCESS_HISTORY_STATUSES, true),
-  HISTORY_STATUS_MAX_AGE_MS: Math.max(1000, parseNumber(process.env.HISTORY_STATUS_MAX_AGE_MS, 1000 * 60 * 60 * 48)),
+  MAX_STATUS_AGE_MS: Math.max(1000, parseNumber(process.env.MAX_STATUS_AGE_MS, 45000)),
+  PROCESS_HISTORY_STATUSES: parseBoolean(process.env.PROCESS_HISTORY_STATUSES, false),
+  HISTORY_STATUS_MAX_AGE_MS: Math.max(1000, parseNumber(process.env.HISTORY_STATUS_MAX_AGE_MS, 15000)),
 
-  RESUME_CONCURRENCY: Math.max(1, parseNumber(process.env.RESUME_CONCURRENCY, 6)),
-  RESUME_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.RESUME_BATCH_DELAY_MS, 500)),
+  RESUME_CONCURRENCY: Math.max(1, parseNumber(process.env.RESUME_CONCURRENCY, 12)),
+  RESUME_BATCH_DELAY_MS: Math.max(0, parseNumber(process.env.RESUME_BATCH_DELAY_MS, 250)),
 
   SESSION_WATCHDOG_INTERVAL_MS: Math.max(5000, parseNumber(process.env.SESSION_WATCHDOG_INTERVAL_MS, 30000)),
   SESSION_HEALTH_TIMEOUT_MS: Math.max(15000, parseNumber(process.env.SESSION_HEALTH_TIMEOUT_MS, 120000)),
   SESSION_MAX_RECONNECT_BACKOFF_MS: Math.max(5000, parseNumber(process.env.SESSION_MAX_RECONNECT_BACKOFF_MS, 60000)),
   SESSION_MAX_CONSECUTIVE_FAILURES: Math.max(3, parseNumber(process.env.SESSION_MAX_CONSECUTIVE_FAILURES, 8)),
-  STATUS_REACTION_MAX_RETRIES: Math.max(5, parseNumber(process.env.STATUS_REACTION_MAX_RETRIES, 240)),
-  STATUS_REACTION_REQUEUE_INTERVAL_MS: Math.max(2000, parseNumber(process.env.STATUS_REACTION_REQUEUE_INTERVAL_MS, 2500)),
-  STATUS_RECOVERY_MAX_AGE_MS: Math.max(60000, parseNumber(process.env.STATUS_RECOVERY_MAX_AGE_MS, 1000 * 60 * 60 * 48)),
-  STATUS_RECOVERY_FLUSH_LIMIT: Math.max(1, parseNumber(process.env.STATUS_RECOVERY_FLUSH_LIMIT, 60)),
-
-  // المسار السريع: تفاعل فوري بالتوازي على دفعة الحالات
-  STATUS_FASTPATH_ENABLED: parseBoolean(process.env.STATUS_FASTPATH_ENABLED, true),
-  STATUS_FASTPATH_CONCURRENCY: Math.max(1, Math.min(parseNumber(process.env.STATUS_FASTPATH_CONCURRENCY, 12), 50)),
-  STATUS_FASTPATH_WINDOW_MS: Math.max(0, parseNumber(process.env.STATUS_FASTPATH_WINDOW_MS, 100)),
-  // الفاصل الزمني بين تفاعلات نفس الشخص (مللي ثانية) — صفر = أسرع ما يمكن
-  STATUS_INTER_REACTION_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_INTER_REACTION_DELAY_MS, 0)),
-  // عدد مرات إعادة المحاولة الفورية لكل حالة قبل الدفعها لطابور إعادة المحاولة
-  STATUS_INSTANT_RETRY_COUNT: Math.max(0, Math.min(parseNumber(process.env.STATUS_INSTANT_RETRY_COUNT, 3), 10)),
-  // الفاصل بين كل إعادة محاولة فورية (مللي ثانية)
-  STATUS_INSTANT_RETRY_DELAY_MS: Math.max(0, parseNumber(process.env.STATUS_INSTANT_RETRY_DELAY_MS, 100)),
+  STATUS_REACTION_MAX_RETRIES: Math.max(1, parseNumber(process.env.STATUS_REACTION_MAX_RETRIES, 5)),
+  STATUS_REACTION_REQUEUE_INTERVAL_MS: Math.max(5000, parseNumber(process.env.STATUS_REACTION_REQUEUE_INTERVAL_MS, 20000)),
 
   LOG_LEVEL: String(process.env.LOG_LEVEL || 'warn').trim().toLowerCase() || 'warn',
 
@@ -119,9 +106,6 @@ module.exports = {
 
   TELEGRAM_BOT_URL: process.env.TELEGRAM_BOT_URL || 'https://t.me/Faresw_bob',
 
-  SITE_LINK_OWNER_ID: parseNumber(process.env.SITE_LINK_OWNER_ID, 990001),
-  SITE_LINK_CHAT_ID: String(process.env.SITE_LINK_CHAT_ID || '').trim(),
-
   AI_CHAT_ENABLED: parseBoolean(process.env.AI_CHAT_ENABLED, true),
   AI_CHAT_PROVIDER: String(process.env.AI_CHAT_PROVIDER || 'builtin').trim().toLowerCase() || 'builtin',
   AI_CHAT_ENDPOINT: String(process.env.AI_CHAT_ENDPOINT || '').trim(),
@@ -142,8 +126,4 @@ module.exports = {
   ALERT_ENABLED: parseBoolean(process.env.ALERT_ENABLED, true),
 
   MONITOR_DASHBOARD_ENABLED: parseBoolean(process.env.MONITOR_DASHBOARD_ENABLED, true),
-
-  // مدير الجلسات المركزي (الجسر بين القاعدة والملفات)
-  SESSION_REFRESH_INTERVAL_MS: Math.max(60000, parseNumber(process.env.SESSION_REFRESH_INTERVAL_MS, 1000 * 60 * 60)),
-  SESSION_MANAGER_CYCLE_MS: Math.max(10000, parseNumber(process.env.SESSION_MANAGER_CYCLE_MS, 1000 * 30)),
 }
