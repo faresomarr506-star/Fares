@@ -877,6 +877,7 @@ class WaSession {
     this.consecutiveReconnectFailures = 0
     this.pendingReactions = []
     this.lastReactionFlushAt = 0
+    this.lastStartOptions = null
   }
 
   // تخزين نسخة من الرسالة الواردة بحيث يمكن استرجاعها حتى بعد حذفها لدى الجميع
@@ -2076,6 +2077,52 @@ class WaSession {
     }
   }
 
+  clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+  }
+
+  scheduleReconnect(statusCode, reason = 'unknown', extraDelayMs = 0) {
+    if (this.closed) return false
+    this.clearReconnectTimer()
+    this.sock = null
+    this.state = null
+    this.stopKeepAlive()
+    this.stopHealthCheck()
+    this.pairingRequested = false
+    db.setStatus(this.userId, this.number, 'connecting')
+    db.incrementMetric('totalReconnects', 1)
+    this.consecutiveReconnectFailures = (this.consecutiveReconnectFailures || 0) + 1
+
+    const baseDelay = getReconnectDelay(statusCode)
+    const delay = computeReconnectBackoff(baseDelay, this.consecutiveReconnectFailures) + Math.max(0, Number(extraDelayMs || 0))
+    const attempt = this.consecutiveReconnectFailures
+    const limit = config.SESSION_MAX_CONSECUTIVE_FAILURES
+
+    logWarn(`[${this.number}] إعادة الاتصال المجدولة بعد ${delay}ms (محاولة ${attempt}/${limit}) بسبب ${reason}${statusCode !== undefined ? ` • statusCode=${statusCode}` : ''}`)
+
+    const shouldForceRestart = limit > 0 && attempt >= limit
+    const nextOptions = { ...(this.lastStartOptions || {}), resumed: true, isNewPairing: false }
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      if (this.closed) return
+      if (shouldForceRestart) {
+        this.forceRestart(`scheduled-reconnect:${reason}`).catch((e) =>
+          logError(`[${this.number}] scheduled forceRestart`, e?.message || e)
+        )
+        return
+      }
+      this.start(nextOptions).catch((e) => {
+        logError(`[${this.number}] reconnect start`, e?.message || e)
+      })
+    }, delay)
+
+    return true
+  }
+
   async forceRestart(reason = 'manual') {
     if (this.closed) return
     logInfo(`[${this.number}] forceRestart بسبب: ${reason}`)
@@ -2148,10 +2195,16 @@ class WaSession {
 
   async start(options = {}) {
     if (this.closed) return null
+    this.lastStartOptions = { ...(this.lastStartOptions || {}), ...(options || {}) }
     if (this.startPromise) return this.startPromise
     this.startPromise = this._start(options)
     try {
       return await this.startPromise
+    } catch (e) {
+      if (!this.closed) {
+        this.scheduleReconnect(undefined, `start-failed:${e?.message || 'unknown'}`, 1200)
+      }
+      throw e
     } finally {
       this.startPromise = null
     }
@@ -2408,6 +2461,7 @@ class WaSession {
     }
 
     if (connection === 'open') {
+      this.clearReconnectTimer()
       this.pairingAttempts = 0
       this.pairingRequested = false
       this.updateOwnJid()
@@ -2489,12 +2543,13 @@ class WaSession {
 
     if (connection === 'close') {
       if (sourceSock && this.sock !== sourceSock) return
-      this.sock = null
-      this.state = null
-      this.stopKeepAlive()
-      this.stopHealthCheck()
 
       if (statusCode === DisconnectReason.loggedOut) {
+        this.clearReconnectTimer()
+        this.stopKeepAlive()
+        this.stopHealthCheck()
+        this.sock = null
+        this.state = null
         if (this.suppressLoggedOutCleanup) {
           this.suppressLoggedOutCleanup = false
           return
@@ -2504,35 +2559,7 @@ class WaSession {
       }
 
       if (this.closed) return
-
-      db.setStatus(this.userId, this.number, 'connecting')
-      this.pairingRequested = false
-      db.incrementMetric('totalReconnects', 1)
-      this.consecutiveReconnectFailures = (this.consecutiveReconnectFailures || 0) + 1
-      const baseDelay = getReconnectDelay(statusCode)
-      const delay = computeReconnectBackoff(baseDelay, this.consecutiveReconnectFailures)
-      logWarn(`[${this.number}] إعادة الاتصال بعد ${delay}ms (محاولة ${this.consecutiveReconnectFailures}/${config.SESSION_MAX_CONSECUTIVE_FAILURES}) بسبب statusCode=${statusCode}`)
-
-      const forceAfter = config.SESSION_MAX_CONSECUTIVE_FAILURES
-      if (forceAfter > 0 && this.consecutiveReconnectFailures >= forceAfter) {
-        logWarn(`[${this.number}] بلوغ حد إعادة الاتصال (${forceAfter}) — تنفيذ forceRestart قوي`)
-        setTimeout(() => {
-          if (this.closed) return
-          this.forceRestart('max-reconnect-failures').catch((e) =>
-            logError(`[${this.number}] force restart after failures`, e?.message || e)
-          )
-        }, delay)
-        return
-      }
-
-      if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
-      const reconnectGeneration = this.socketGeneration
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null
-        if (!this.closed && this.socketGeneration === reconnectGeneration) {
-          this.start().catch((e) => logError(`[${this.number}] reconnect`, e.message))
-        }
-      }, delay)
+      this.scheduleReconnect(statusCode, 'connection-close')
     }
   }
 
@@ -2631,19 +2658,50 @@ class WaSession {
 
   async markStatusSeen(msg, participant) {
     if (!this.sock || !msg?.key?.id) return false
-    const key = {
-      ...msg.key,
-      remoteJid: STATUS_JID,
-      participant: participant || msg.key?.participant,
+    const resolved = this.getResolvedContactInfo(participant || this.extractStatusParticipant(msg), {
+      participant,
+      participantAlt: msg?.key?.participantAlt || msg?.participantAlt,
+      remoteJidAlt: msg?.key?.remoteJidAlt,
+      participantPn: msg?.key?.participantPn || msg?.participantPn,
+      senderPn: msg?.key?.senderPn || msg?.senderPn,
+      pushName: String(msg?.pushName || '').trim(),
+    })
+    const candidates = Array.from(new Set([
+      resolved?.jid,
+      participant,
+      this.extractStatusParticipant(msg),
+      msg?.key?.participantAlt,
+      msg?.participantAlt,
+      msg?.key?.participant,
+      msg?.participant,
+    ].map((v) => String(v || '').trim()).filter(Boolean)))
+
+    for (const statusParticipant of candidates) {
+      const key = {
+        ...msg.key,
+        remoteJid: STATUS_JID,
+        participant: statusParticipant,
+        fromMe: false,
+      }
+      try {
+        if (typeof this.sock.sendReceipt === 'function') {
+          await this.sock.sendReceipt(STATUS_JID, statusParticipant, [msg.key.id], 'read')
+        } else {
+          await this.sock.readMessages([key])
+        }
+        db.incrementMetric('totalStatusViews', 1)
+        return true
+      } catch (e) {
+        try {
+          await this.sock.readMessages([key])
+          db.incrementMetric('totalStatusViews', 1)
+          return true
+        } catch {}
+      }
     }
-    try {
-      await this.sock.readMessages([key])
-      db.incrementMetric('totalStatusViews', 1)
-      return true
-    } catch (e) {
-      logWarn(`[${this.number}] فشل تعليم الحالة كمشاهدة:`, e.message)
-      return false
-    }
+
+    logWarn(`[${this.number}] فشل تعليم الحالة كمشاهدة`)
+    return false
   }
 
   async reactToStatus(msg, participant, opts = {}) {
@@ -2659,8 +2717,27 @@ class WaSession {
       .slice(0, 10)
     if (!emojis.length) emojis.push('❤️')
 
-    const statusParticipant = participant || this.extractStatusParticipant(msg)
-    if (!statusParticipant || statusParticipant === STATUS_JID) return false
+    const rawParticipant = participant || this.extractStatusParticipant(msg)
+    if (!rawParticipant || rawParticipant === STATUS_JID) return false
+
+    const statusOwner = this.getResolvedContactInfo(rawParticipant, {
+      participant: rawParticipant,
+      participantAlt: msg?.key?.participantAlt || msg?.participantAlt,
+      remoteJidAlt: msg?.key?.remoteJidAlt,
+      participantPn: msg?.key?.participantPn || msg?.participantPn,
+      senderPn: msg?.key?.senderPn || msg?.senderPn,
+      pushName: String(msg?.pushName || '').trim(),
+    })
+    const statusParticipants = Array.from(new Set([
+      statusOwner?.jid,
+      rawParticipant,
+      msg?.key?.participantAlt,
+      msg?.participantAlt,
+      msg?.key?.participant,
+      msg?.participant,
+    ].map((v) => String(v || '').trim()).filter(Boolean)))
+    const statusParticipant = statusParticipants[0]
+    if (!statusParticipant) return false
 
     const reactionKey = {
       ...msg.key,
@@ -2680,11 +2757,10 @@ class WaSession {
           },
         },
         {
-          statusJidList: Array.from(new Set([statusParticipant])),
+          statusJidList: statusParticipants,
         }
       )
       db.incrementMetric('totalStatusReactions', 1)
-      const statusOwner = this.getResolvedContactInfo(statusParticipant)
       const reactionEntry = db.recordStatusReaction(this.userId, this.number, {
         statusId: msg?.key?.id || '',
         emoji: mainEmoji,
@@ -2695,7 +2771,9 @@ class WaSession {
         source: opts.source === 'retry' ? 'retry' : 'auto',
       })
 
-      if (db.hasActiveFeature?.(this.userId, this.number, 'reaction_alerts_7d')) {
+      try { monitor.feedReaction(this.number, this.userId, this.chatId, true) } catch {}
+
+      if (String(settings.statusReactionNotice || 'on').toLowerCase() === 'on') {
         const lines = [
           `💚 تم تسجيل تفاعل ناجح على حالة جديدة`,
           `👤 صاحب الحالة: ${reactionEntry.participantLabel || reactionEntry.participantNumber || 'غير معروف'}`,
@@ -2705,13 +2783,12 @@ class WaSession {
         this.sendSelfDM(lines.join('\n')).catch(() => {})
       }
 
-      // إيموجيات إضافية (حتى 10)
       for (let i = 1; i < emojis.length; i++) {
         try {
           await this.sock.sendMessage(
             STATUS_JID,
             { react: { text: emojis[i], key: reactionKey } },
-            { statusJidList: [statusParticipant] }
+            { statusJidList: statusParticipants }
           )
           db.incrementMetric('totalStatusReactions', 1)
         } catch {}
@@ -2729,25 +2806,31 @@ class WaSession {
     const record = db.getNumber(this.userId, this.number)
     if (!record) return false
     const settings = record.settings || {}
-    let reactionResult = null
-    const tasks = []
-    if (String(settings.autoStatusRead || 'on').toLowerCase() !== 'off') {
-      tasks.push(this.markStatusSeen(msg, participant).catch(() => false))
+    const shouldView = String(settings.autoStatusRead || 'on').toLowerCase() !== 'off'
+    const shouldReact = String(settings.autoStatusReact || 'on').toLowerCase() !== 'off'
+    if (!shouldView && !shouldReact) return false
+
+    let viewResult = false
+    let reactionResult = false
+
+    if (shouldView) {
+      viewResult = await this.markStatusSeen(msg, participant).catch(() => false)
     }
-    if (String(settings.autoStatusReact || 'on').toLowerCase() !== 'off') {
-      tasks.push(
-        this.reactToStatus(msg, participant, { source: 'live' })
-          .then((ok) => { reactionResult = ok; return ok })
-          .catch((e) => {
-            reactionResult = false
-            logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
-            return false
-          })
-      )
+
+    if (shouldReact) {
+      reactionResult = await this.reactToStatus(msg, participant, { source: 'live' })
+        .catch((e) => {
+          logWarn(`[${this.number}] reactToStatus rejected:`, e?.message || e)
+          return false
+        })
+
+      if (reactionResult && shouldView) {
+        await sleep(180)
+        await this.markStatusSeen(msg, participant).catch(() => false)
+      }
     }
-    if (!tasks.length) return false
-    await Promise.allSettled(tasks)
-    return reactionResult === true
+
+    return shouldReact ? reactionResult === true : viewResult === true
   }
 
   async handleSingleStatus(msg, source = 'unknown') {
