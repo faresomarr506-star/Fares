@@ -717,6 +717,115 @@ async function syncSessionCollectionFromState() {
   return true
 }
 
+async function mergeStateFromSessionCollection() {
+  if (!sessionCollection) return { mergedUsers: 0, mergedNumbers: 0 }
+
+  const docs = await sessionCollection
+    .find(
+      { number: { $exists: true, $ne: '' } },
+      {
+        projection: {
+          _id: 0,
+          sessionId: 1,
+          userId: 1,
+          chatId: 1,
+          number: 1,
+          linkedAt: 1,
+          createdAt: 1,
+          status: 1,
+          emoji: 1,
+          autoViewStatus: 1,
+          autoReactStatus: 1,
+          joinedChannel: 1,
+          settings: 1,
+          panelPasswordHash: 1,
+          wallet: 1,
+          featureStates: 1,
+          statusReactions: 1,
+          lastStatusReactionAt: 1,
+          lastStatusReaction: 1,
+        },
+      }
+    )
+    .toArray()
+
+  let mergedUsers = 0
+  let mergedNumbers = 0
+
+  for (const doc of docs) {
+    const userId = Number(doc?.userId || 0)
+    const number = normalizeNumber(doc?.number)
+    if (!userId || !number) continue
+
+    let user = data.users[userId]
+    if (!user) {
+      user = normalizeUserRecord(userId, { userId, chatId: doc?.chatId || null, numbers: [] })
+      data.users[userId] = user
+      mergedUsers++
+    }
+
+    if (doc?.chatId && !user.chatId) {
+      user.chatId = doc.chatId
+    }
+
+    const current = (user.numbers || []).find((item) => item.number === number) || null
+    const remoteRecord = normalizeNumberRecord({
+      number,
+      linkedAt: Number(doc?.linkedAt || doc?.createdAt || Date.now()),
+      status: String(doc?.status || 'connected'),
+      emoji: String(doc?.emoji || doc?.settings?.statusCustomReact || DEFAULT_EMOJI),
+      autoViewStatus: doc?.autoViewStatus !== false,
+      autoReactStatus: doc?.autoReactStatus !== false,
+      joinedChannel: doc?.joinedChannel === true,
+      settings: doc?.settings || {},
+      panelPasswordHash: doc?.panelPasswordHash || null,
+      wallet: doc?.wallet || {},
+      featureStates: doc?.featureStates || {},
+      statusReactions: Array.isArray(doc?.statusReactions) ? doc.statusReactions : [],
+      lastStatusReactionAt: Number(doc?.lastStatusReactionAt || 0) || null,
+      lastStatusReaction: doc?.lastStatusReaction || null,
+    })
+
+    if (!current) {
+      user.numbers.push(remoteRecord)
+      mergedNumbers++
+      continue
+    }
+
+    current.status = current.status || remoteRecord.status
+    current.emoji = current.emoji || remoteRecord.emoji
+    current.linkedAt = Number(current.linkedAt || remoteRecord.linkedAt || Date.now())
+    current.joinedChannel = current.joinedChannel === true || remoteRecord.joinedChannel === true
+    current.autoViewStatus = current.autoViewStatus !== false && remoteRecord.autoViewStatus !== false
+    current.autoReactStatus = current.autoReactStatus !== false && remoteRecord.autoReactStatus !== false
+    current.settings = normalizePhoneSettings({ ...(remoteRecord.settings || {}), ...(current.settings || {}) })
+    if (!current.panelPasswordHash && remoteRecord.panelPasswordHash) current.panelPasswordHash = remoteRecord.panelPasswordHash
+    if ((!current.wallet || !Object.keys(current.wallet).length) && remoteRecord.wallet) current.wallet = normalizeWallet(remoteRecord.wallet)
+    if ((!current.featureStates || !Object.keys(current.featureStates).length) && remoteRecord.featureStates) current.featureStates = normalizeFeatureStates(remoteRecord.featureStates)
+    if ((!Array.isArray(current.statusReactions) || !current.statusReactions.length) && Array.isArray(remoteRecord.statusReactions)) {
+      current.statusReactions = remoteRecord.statusReactions
+    }
+    if (!current.lastStatusReactionAt && remoteRecord.lastStatusReactionAt) current.lastStatusReactionAt = remoteRecord.lastStatusReactionAt
+    if (!current.lastStatusReaction && remoteRecord.lastStatusReaction) current.lastStatusReaction = remoteRecord.lastStatusReaction
+    ensureNumberWalletFields(current)
+  }
+
+  if (mergedUsers || mergedNumbers) touch()
+  return { mergedUsers, mergedNumbers }
+}
+
+function getStateCollection() {
+  return stateCollection
+}
+
+function getAuthCollection() {
+  return authCollection
+}
+
+function getSessionCollection() {
+  return sessionCollection
+}
+
 async function load() {
   let localLoaded = false
   try {
@@ -751,6 +860,10 @@ async function load() {
         }
         ensureStructure()
       }
+    }
+
+    const mergeReport = await mergeStateFromSessionCollection()
+    if (!remote?.payload || mergeReport.mergedUsers || mergeReport.mergedNumbers) {
       await saveRemoteState()
     }
 
@@ -1606,6 +1719,9 @@ module.exports = {
   getSessionScope,
   isMongoEnabled,
   isRemoteSessionStorageEnabled,
+  getStateCollection,
+  getAuthCollection,
+  getSessionCollection,
   getPhoneSettings,
   setPhoneSettings,
   setPhoneSetting,
