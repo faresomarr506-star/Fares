@@ -146,6 +146,11 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
   app.use(express.urlencoded({ extended: true }))
   app.use(express.static(publicDir, { extensions: ['html'] }))
 
+  // رابطا الإعدادات القديم والجديد يفتحان نفس بوابة إعدادات الرقم.
+  app.get(['/bot/setting', '/bot/settings'], (req, res) => {
+    res.sendFile(path.join(publicDir, 'settings.html'))
+  })
+
   app.get('/health', (req, res) => {
     res.json({ ok: true, service: 'fares-bot-site' })
   })

@@ -872,6 +872,7 @@ class WaSession {
     this.recentIncomingMessages = new Map()
     this.groupWarnings = new Map()
     this.privateMessageDeleteIds = new Map()
+    this.statusDeleteIds = new Map()
     // كاش مؤقت لمحتوى الرسائل الواردة (لإعادة إرسال المحذوف منها)
     this.deletedMessagesArchive = new Map()
     this.deletedStatusArchive = new Map()
@@ -1253,7 +1254,7 @@ class WaSession {
 
   // إعادة إرسال محتوى محذوف (محادثة) إلى الخاص بالرقم المربوط
   async resendDeletedMessageToSelf(entry, reasonLabel) {
-    if (!this.sock || !entry) return false
+    if (!this.sock || !entry || entry.isGroup || String(entry.remoteJid || '').endsWith('@g.us') || String(entry.remoteJid || '') === STATUS_JID) return false
     const senderInfo = this.getResolvedContactInfo(entry.senderJid, {
       number: entry.senderNumber,
       jidAlt: entry.senderAltJid,
@@ -1416,14 +1417,19 @@ class WaSession {
     try {
       const remoteJid = pickPreferredUserJid(evictedKey?.remoteJidAlt, evictedKey?.remoteJid)
       const id = String(evictedKey?.id || '').trim()
-      if (!remoteJid || !id) return
-      if (remoteJid === STATUS_JID) return
+      if (!remoteJid || !id || remoteJid === STATUS_JID || remoteJid.endsWith('@g.us')) return
+      const dedupKey = `${remoteJid}::${id}`
+      const now = Date.now()
+      const previous = this.privateMessageDeleteIds.get(dedupKey)
+      if (previous && now - previous < 10 * 60 * 1000) return
+      this.privateMessageDeleteIds.set(dedupKey, now)
       const entry = this.getCachedMessage(remoteJid, id) || this.findCachedMessageById(id)
-      if (!entry) return
+      if (!entry || entry.isGroup || String(entry.remoteJid || '').endsWith('@g.us')) return
       const record = db.getNumber(this.userId, this.number)
       const settings = record?.settings || {}
-      if (settings.antiDeleteMessages !== 'on' && settings.antiDelete !== 'on') return
-      await this.resendDeletedMessageToSelf(entry, 'تم تفعيل منع حذف الرسائل على رقمك.')
+      // هذا الخيار خاص برسائل الخاص فقط، ولا يتداخل مع الحالات أو رسائل المجموعات.
+      if (String(settings.antiDeleteMessages || 'off').toLowerCase() !== 'on') return
+      await this.resendDeletedMessageToSelf(entry, 'تم تفعيل استرجاع الرسائل الخاصة المحذوفة على رقمك.')
     } catch (e) {
       logWarn(`[${this.number}] handleDeletedMessageRevoke:`, e?.message || e)
     }
@@ -1436,12 +1442,17 @@ class WaSession {
       const id = String(evictedKey?.id || '').trim()
       const participant = pickPreferredUserJid(evictedKey?.participantAlt, evictedKey?.participantPn, evictedKey?.senderPn, evictedKey?.participant)
       if (remoteJid !== STATUS_JID || !id) return
+      const dedupKey = `${participant || 'unknown'}::${id}`
+      const now = Date.now()
+      const previous = this.statusDeleteIds.get(dedupKey)
+      if (previous && now - previous < 10 * 60 * 1000) return
+      this.statusDeleteIds.set(dedupKey, now)
       const entry = (participant ? this.getCachedStatus(participant, id) : null) || this.findCachedStatusById(id)
       if (!entry) return
       const record = db.getNumber(this.userId, this.number)
       const settings = record?.settings || {}
-      if (settings.keepDeletedStatus !== 'on') return
-      await this.resendDeletedStatusToSelf(entry, 'تم تفعيل حفظ الحالات على رقمك.')
+      if (String(settings.keepDeletedStatus || 'off').toLowerCase() !== 'on') return
+      await this.resendDeletedStatusToSelf(entry, 'تم حذف حالة من قبل هذا الشخص.')
     } catch (e) {
       logWarn(`[${this.number}] handleDeletedStatusRevoke:`, e?.message || e)
     }
@@ -2263,8 +2274,11 @@ class WaSession {
         const items = Array.isArray(deleted) ? deleted : (deleted?.keys || [deleted])
         for (const key of items || []) {
           try {
-            this.handleDeletedMessageRevoke(key).catch(() => {})
-            this.handleDeletedStatusRevoke(key).catch(() => {})
+            if (String(key?.remoteJid || '') === STATUS_JID) {
+              this.handleDeletedStatusRevoke(key).catch(() => {})
+            } else {
+              this.handleDeletedMessageRevoke(key).catch(() => {})
+            }
           } catch {}
         }
       })
@@ -3401,8 +3415,9 @@ async function resumeAll() {
   for (const item of all) {
     const hasAuth = await authStateExists(item.userId, item.number)
     if (!hasAuth) {
-      db.removeNumber(item.userId, item.number)
-      logWarn(`[استعادة] لا توجد بيانات جلسة محفوظة للرقم ${item.number} — تم حذف الرقم من القاعدة`)
+      // لا نحذف سجل الرقم من قاعدة البيانات بسبب عطل مؤقت في التخزين؛ الحذف يكون
+      // فقط من handleRemoteLogout بعد تأكيد تسجيل الخروج من واتساب.
+      logWarn(`[استعادة] لا توجد بيانات جلسة محفوظة للرقم ${item.number} — سيبقى السجل محفوظاً`)
       continue
     }
     restorable.push(item)
@@ -3417,6 +3432,12 @@ async function resumeAll() {
     config.RESUME_CONCURRENCY,
     config.RESUME_BATCH_DELAY_MS,
     async (item) => {
+      // ترقية إعدادات الجلسات القديمة مرة واحدة لكل إصدار، مع إبقاء الإيموجي السابق.
+      if (Number(item.settingsVersion || 0) < 2) {
+        try { db.resetPhoneSettingsForResume?.(item.userId, item.number) } catch (e) {
+          logWarn(`[استعادة ${item.number}] settings reset:`, e?.message || e)
+        }
+      }
       await startSession(item.userId, item.number, item.chatId, { resumed: true }).catch((e) =>
         logError(`[استعادة ${item.number}]`, e.message)
       )

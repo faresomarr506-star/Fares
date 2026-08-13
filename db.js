@@ -367,6 +367,7 @@ function normalizeNumberRecord(record = {}) {
     autoReactStatus: record.autoReactStatus !== false,
     joinedChannel: record.joinedChannel === true,
     settings: normalizePhoneSettings(record.settings),
+    settingsVersion: Number(record.settingsVersion || 0) || 0,
     panelPasswordHash: typeof record.panelPasswordHash === 'string' ? record.panelPasswordHash : null,
     wallet: normalizeWallet(record.wallet),
     featureStates: normalizeFeatureStates(record.featureStates),
@@ -1080,6 +1081,23 @@ function setPhoneSettings(userId, number, patch) {
   return { ...next }
 }
 
+// يعيد تهيئة إعدادات الرقم عند استعادة جلسة قديمة، مع إبقاء إيموجي الرقم كما هو.
+// لا يستدعى عند الحفظ العادي من لوحة الإعدادات حتى تبقى التعديلات الحية محفوظة.
+function resetPhoneSettingsForResume(userId, number) {
+  const n = getNumber(userId, number)
+  if (!n) throw new Error('not_found')
+  const previousEmoji = String(n.emoji || n.settings?.statusCustomReact || DEFAULT_EMOJI).trim() || DEFAULT_EMOJI
+  const next = normalizePhoneSettings({ ...DEFAULT_PHONE_SETTINGS, statusCustomReact: previousEmoji })
+  n.settings = next
+  n.settingsVersion = 2
+  n.emoji = previousEmoji
+  n.autoViewStatus = String(next.autoStatusRead).toLowerCase() !== 'off'
+  n.autoReactStatus = String(next.autoStatusReact).toLowerCase() !== 'off'
+  save()
+  upsertSessionRecord(userId, getUser(userId)?.chatId || null, n).catch(() => {})
+  return { ...next }
+}
+
 function setPhoneSetting(userId, number, key, value) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_PHONE_SETTINGS, key)) {
     throw new Error('unknown_setting')
@@ -1724,6 +1742,7 @@ module.exports = {
   getSessionCollection,
   getPhoneSettings,
   setPhoneSettings,
+  resetPhoneSettingsForResume,
   setPhoneSetting,
   setPanelPassword,
   verifyPanelPassword,
