@@ -84,6 +84,11 @@
       if (data.ok) setText('passwordHint', data.hasCustomPassword ? 'تم تعيين كلمة مرور مخصصة لهذا الرقم.' : `كلمة المرور الافتراضية: ${data.defaultPassword}`)
     } catch {}
   }
+  async function loadReactionsOnly() {
+    const { data } = await api(`/api/panel/${encodeURIComponent(state.number)}/status-reactions`)
+    if (!data.ok) throw new Error(data.error || 'تعذر تحميل التفاعلات.')
+    renderReactions(data.reactions || {})
+  }
   async function loadAll() {
     const settingsReq = api(`/api/panel/${encodeURIComponent(state.number)}/settings`)
     const walletReq = api(`/api/panel/${encodeURIComponent(state.number)}/wallet`)
@@ -185,6 +190,7 @@
       }
     }
     setInterval(() => { if (state.number && state.token) { loadAll().catch(() => {}) } }, 20000)
+    setInterval(() => { if (state.number && state.token) { loadReactionsOnly().catch(() => {}) } }, 5000)
   }
   bootstrap().catch(console.error)
 })()

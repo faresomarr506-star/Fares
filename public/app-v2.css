@@ -36,3 +36,37 @@ h1{font-size:clamp(2rem,4vw,4rem);line-height:1.15;margin:18px 0 16px}.lead{font
 .footer{padding:22px 0 40px;color:var(--muted);text-align:center}
 @media (max-width: 1080px){.hero,.two-col{grid-template-columns:1fr}.feature-grid,.stats-grid,.dashboard-grid,.settings-grid,.offer-grid{grid-template-columns:repeat(2,1fr)}}
 @media (max-width: 720px){.nav,.hero-actions,.form-actions,.panel-actions,.dashboard-top{flex-direction:column;align-items:stretch}.feature-grid,.stats-grid,.dashboard-grid,.settings-grid,.offer-grid,.toggles,.hero-metrics{grid-template-columns:1fr}.shell{width:min(100% - 20px,1200px)}.hero-copy,.hero-side,.section{padding:20px}}
+
+
+/* ===== fixes: panel inputs/selects stay dark after save/autofill ===== */
+.field input,
+.field select,
+.field textarea,
+.toggle select {
+  color-scheme: dark;
+}
+.field select option,
+.toggle select option {
+  background: #0f172a;
+  color: #e5eefc;
+}
+.field input:-webkit-autofill,
+.field input:-webkit-autofill:hover,
+.field input:-webkit-autofill:focus,
+.field select:-webkit-autofill,
+.field select:-webkit-autofill:hover,
+.field select:-webkit-autofill:focus,
+.field textarea:-webkit-autofill,
+.field textarea:-webkit-autofill:hover,
+.field textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 1000px rgba(15, 23, 42, 0.96) inset !important;
+  transition: background-color 9999s ease-in-out 0s;
+  caret-color: var(--text);
+}
+.toggle select,
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(255,255,255,.04);
+}
