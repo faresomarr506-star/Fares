@@ -1,0 +1,26 @@
+{
+  "users": {},
+  "comments": [],
+  "metrics": {
+    "startedAt": 1786632226221,
+    "totalPairingCodesIssued": 0,
+    "totalSuccessfulLinks": 0,
+    "totalReconnects": 0,
+    "totalStatusViews": 0,
+    "totalStatusReactions": 0,
+    "totalSelfMessages": 0,
+    "totalChannelJoinAttempts": 0,
+    "totalChannelJoinSuccess": 0,
+    "totalBroadcastsTelegram": 0,
+    "totalBroadcastsWhatsapp": 0,
+    "totalBroadcastRecipientsTelegram": 0,
+    "totalBroadcastRecipientsWhatsapp": 0
+  },
+  "settings": {
+    "startMessage": "👋 أهلًا بك في بوت التفاعل مع الحالات!\n\n📌 <b>ماذا يفعل البوت:</b>\n• تربط رقم واتساب عبر كود الاقتران من داخل البوت مباشرة\n• يتفاعل البوت تلقائياً وبشكل مستمر على حالات (ستوريات) جهات اتصالك خلال ثانية واحدة\n• كل رقم له جلسة مستقلة وإيموجي تفاعل خاص به لا يتأثر بغيره\n• بعد نجاح الربط:\n↪️ يصل تأكيد للرقم داخل واتساب نفسه\n↪️ ينضم الرقم تلقائياً إلى قناة الواتساب الرسمية"
+  },
+  "meta": {
+    "createdAt": 1786632226221,
+    "updatedAt": 1786632226319
+  }
+}
