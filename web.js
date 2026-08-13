@@ -205,7 +205,7 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
     if (!name || name.length < 2) return res.status(400).json({ ok: false, error: 'الاسم يجب أن يكون حرفين على الأقل.' })
     if (!message || message.length < 5) return res.status(400).json({ ok: false, error: 'التعليق أو الاستفسار قصير جداً.' })
     if (message.length > 1200) return res.status(400).json({ ok: false, error: 'التعليق طويل جداً.' })
-    const created = db.addComment({ name, contact, message })
+    const created = db.addComment({ name, contact, message, autoReply: true })
     res.status(201).json({ ok: true, comment: formatApiComment(created) })
   })
 

@@ -1239,6 +1239,62 @@ function resetStartMessage() {
   return data.settings.startMessage
 }
 
+function buildSmartCommentReply(message, name = 'زائر') {
+  const raw = String(message || '').trim()
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+
+  const cleanName = String(name || '').trim().split(/\s+/)[0] || 'يا غالي'
+  const seed = Array.from(raw).reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
+  const intros = [
+    `أهلاً ${cleanName}`,
+    `حياك الله ${cleanName}`,
+    `هلا ${cleanName}`,
+    `نورتنا ${cleanName}`,
+  ]
+  const closers = [
+    'إذا احتجت شيء إضافي اكتب لنا التفاصيل ونساعدك.',
+    'إذا تريد نتابع معك خطوة بخطوة اكتب لنا أكثر.',
+    'ولو حاب نوضح أكثر أو نراجع معك المشكلة نحن جاهزين.',
+    'إذا عندك تفاصيل إضافية أو صورة للمشكلة ارسلها ونكمل معك.',
+  ]
+  const intro = intros[seed % intros.length]
+  const closer = closers[seed % closers.length]
+
+  if (/(مشكله|مشكله|ما يشتغل|مايشتغل|لا يعمل|تعطل|خرب|باغ|bug|error|خطا|خطأ|معلق|وقف)/.test(normalized)) {
+    return `${intro}، واضح أن عندك مشكلة في الخدمة. جرّب ترسل لنا اسم الصفحة أو الخطوة التي توقفت عندها، وإذا ظهر لك خطأ معين اكتبه لنا حتى نضبطه معك بسرعة. ${closer}`
+  }
+
+  if (/(ربط|اقتران|pair|كود|code|رقم|واتساب)/.test(normalized)) {
+    return `${intro}، بالنسبة للربط: افتح صفحة الرقم ثم أدخل الرقم بصيغته الدولية واطلب كود الاقتران، وبعدها الصق الكود داخل واتساب من الأجهزة المرتبطة. إذا تعطل معك أي جزء في الخطوات قل لنا أين توقفت بالضبط. ${closer}`
+  }
+
+  if (/(اعدادات|الاعدادات|settings|لوحه|لوحة|panel|حمايه|حماية|رد تلقائي|ذكاء|ai)/.test(normalized)) {
+    return `${intro}، الإعدادات الكاملة أصبحت داخل لوحة الرقم، ومنها تقدر تغيّر الحماية والردود الذكية والتفاعلات وكل التعديلات تُطبَّق مباشرة على الرقم المربوط. ${closer}`
+  }
+
+  if (/(سعر|سعره|فلوس|مدفوع|اشتراك|عمله|عملات|coins|vip|متجر)/.test(normalized)) {
+    return `${intro}، بخصوص الأسعار أو المزايا: بعض الخصائص مرتبطة بالمحفظة والمتجر داخل لوحة الرقم، ومن هناك تقدر تشوف الرصيد والمزايا النشطة وتفاصيل كل خيار بشكل واضح. ${closer}`
+  }
+
+  if (/(اقتراح|اضيف|أضيف|اضافه|اضافة|ميزة|مميزه|فكره|فكرة|طور|تطوير)/.test(normalized)) {
+    return `${intro}، اقتراحك وصل وواضح أنه مفيد، وسنأخذه بعين الاعتبار في التحسينات القادمة. إذا تحب وضّح لنا الفكرة أكثر أو كيف تتخيلها داخل الموقع حتى ننفذها بشكل أفضل. ${closer}`
+  }
+
+  if (/(جميل|رائع|ممتاز|مرتب|فخم|ابداع|إبداع|عجبني|يعطيكم العافيه|يعطيكم العافية|شكرا|شكراً|تسلم|يعطيك العافيه|يعطيك العافية)/.test(normalized)) {
+    return `${intro}، شكراً لك على الكلام الجميل، هذا يسعدنا جداً. إن شاء الله نستمر نحسن الموقع والبوت بشكل يليق فيك أكثر وأكثر. ${closer}`
+  }
+
+  if (/(تعليق|رد|رساله|رسالة|تواصل|تجاوب|support|دعم)/.test(normalized)) {
+    return `${intro}، تم استلام تعليقك بنجاح، وإذا كان عندك طلب محدد أو نقطة تريد متابعة مباشرة عليها اكتبها لنا بشكل أوضح وسنرد عليك بما يناسبها. ${closer}`
+  }
+
+  return `${intro}، وصلنا تعليقك وفهمنا المقصود بشكل عام. سنراجع الملاحظة أو الطلب الذي ذكرته، وإذا احتجنا تفاصيل إضافية بنتواصل معك من خلال نفس التعليق. ${closer}`
+}
+
 function addComment({ name, contact, message, autoReply = false }) {
   const normalized = normalizeComment({
     id: createId('cmt'),
@@ -1256,7 +1312,11 @@ function addComment({ name, contact, message, autoReply = false }) {
 
   data.comments.unshift(normalized)
   if (autoReply) {
-    normalized.reply = { text: normalized.message, by: 'الرد التلقائي', createdAt: Date.now() }
+    normalized.reply = {
+      text: buildSmartCommentReply(normalized.message, normalized.name),
+      by: 'الرد التلقائي',
+      createdAt: Date.now(),
+    }
     normalized.status = 'replied'
     normalized.updatedAt = Date.now()
   }
