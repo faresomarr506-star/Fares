@@ -16,16 +16,16 @@
     return { res, data }
   }
   async function loadConfig() {
-    const { data } = await api('/api/public/config')
-    if (!data.ok) return
+    const { res, data } = await api('/api/public/config')
+    if (!res.ok || !data.ok) throw new Error(data.error || 'تعذر تحميل إعدادات الموقع.')
     set('siteTitle', data.config.siteTitle)
     set('siteDescription', data.config.siteDescription)
     const channel = $('channelLink')
     if (channel) channel.href = data.config.whatsappChannelUrl || '#'
   }
   async function loadStats() {
-    const { data } = await api('/api/public/stats')
-    if (!data.ok) return
+    const { res, data } = await api('/api/public/stats')
+    if (!res.ok || !data.ok) throw new Error(data.error || 'تعذر تحميل إحصائيات الموقع.')
     const s = data.stats
     set('statNumbers', format(s.totalNumbers))
     set('statConnected', format(s.connected))
@@ -54,8 +54,9 @@
     `).join('') : '<div class="comment-item"><strong>لا توجد تعليقات بعد</strong><div class="small">ابدأ بإرسال أول تعليق من النموذج أعلاه.</div></div>'
   }
   async function loadComments() {
-    const { data } = await api('/api/public/comments')
-    if (data.ok) renderComments(data.comments || [])
+    const { res, data } = await api('/api/public/comments')
+    if (!res.ok || !data.ok) throw new Error(data.error || 'تعذر تحميل التعليقات.')
+    renderComments(data.comments || [])
   }
   async function submitComment(e) {
     e.preventDefault()
@@ -103,7 +104,16 @@
     status('pairStatus', copied ? 'تم إنشاء الكود ونسخه تلقائياً.' : 'تم إنشاء الكود. استخدم زر النسخ إذا لزم.', 'success')
   }
   async function init() {
-    await Promise.all([loadConfig(), loadStats(), loadComments()])
+    const boot = await Promise.allSettled([loadConfig(), loadStats(), loadComments()])
+    const failed = boot.find((item) => item.status === 'rejected')
+    if (failed) {
+      const message = failed.reason?.message || 'تعذر تحميل بعض بيانات الموقع حالياً.'
+      set('statsUpdated', message)
+      if (!$('commentsList')?.innerHTML) {
+        renderComments([])
+      }
+      console.warn('[landing:init]', message)
+    }
     $('commentForm')?.addEventListener('submit', submitComment)
     $('loginForm')?.addEventListener('submit', submitLogin)
     $('pairForm')?.addEventListener('submit', submitPair)
