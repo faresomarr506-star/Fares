@@ -16,31 +16,32 @@
       <nav class="nav"><a class="btn btn-ghost" href="/">الرئيسية</a><a class="btn btn-secondary" href="/downloader">تنزيل الوسائط</a></nav>
     </header>
 
+    <div class="fares-clock-widget" aria-label="الساعة والتاريخ"><div class="analog-clock"><span class="clock-number n12">12</span><span class="clock-number n3">3</span><span class="clock-number n6">6</span><span class="clock-number n9">9</span><i class="hand hand-hour"></i><i class="hand hand-minute"></i><i class="hand hand-second"></i><b class="clock-center"></b></div><div><strong id="panelClockTime">00:00:00</strong><small id="panelClockDate">جاري تحميل التاريخ...</small></div></div>
     <main class="shell panel-shell">
-      <section id="loginCard" class="section card login-card">
+      <section id="panelLoginCard" class="section card login-card">
         <div class="section-head"><div><h1 style="margin:0">تسجيل دخول الرقم المربوط</h1><p>أدخل الرقم المربوط وكلمة المرور لفتح لوحة التحكم الكاملة.</p></div></div>
-        <form id="loginForm">
-          <div class="field"><span>الرقم المربوط</span><input id="loginNumber" type="text" inputmode="numeric" required /></div>
-          <div class="field"><span>كلمة المرور</span><input id="loginPassword" type="password" required /><div id="passwordHint" class="small"></div></div>
+        <form id="panelLoginForm">
+          <div class="field"><span>الرقم المربوط</span><input id="panelNumberInput" type="text" inputmode="numeric" required /></div>
+          <div class="field"><span>كلمة المرور</span><input id="panelPasswordInput" type="password" required /><div id="panelPasswordHint" class="small"></div></div>
           <div class="form-actions"><button class="btn btn-primary" type="submit">دخول</button></div>
-          <div id="loginStatus" class="status"></div>
+          <div id="panelLoginStatus" class="status"></div>
         </form>
       </section>
 
-      <section id="dashboard" class="hidden">
+      <section id="panelMain" class="hidden">
         <div class="dashboard-top">
           <div>
-            <h1 style="margin:0 0 8px">لوحة الرقم <span id="headerNumber"></span></h1>
-            <div class="small">الحالة: <span id="headerStatus">—</span> · إيموجي الحالة: <span id="headerEmoji">❤️</span></div>
+            <h1 style="margin:0 0 8px">لوحة الرقم <span id="panelHeaderNumber"></span></h1>
+            <div class="small">الحالة: <span id="panelStatusLabel">—</span> · إيموجي الحالة: <span id="panelEmojiLabel">❤️</span></div>
           </div>
           <div class="panel-actions">
-            <span id="tierPill" class="pill">STANDARD</span>
-            <button id="saveBtn" class="btn btn-primary" type="button">حفظ الإعدادات</button>
-            <button id="reloadBtn" class="btn btn-ghost" type="button">تحديث</button>
-            <button id="logoutBtn" class="btn btn-danger" type="button">خروج</button>
+            <span id="panelTierBadge" class="pill">STANDARD</span>
+            <button id="panelSaveBtn" class="btn btn-primary" type="button">حفظ الإعدادات</button>
+            <button id="panelReloadBtn" class="btn btn-ghost" type="button">تحديث</button>
+            <button id="panelLogoutBtn" class="btn btn-danger" type="button">خروج</button>
           </div>
         </div>
-        <div id="saveStatus" class="status"></div>
+        <div id="panelSaveStatus" class="status"></div>
 
         <div class="dashboard-grid">
           <div class="quick-card card"><span class="small">الرصيد الحالي</span><h3 id="walletBalance">0</h3></div>
@@ -75,9 +76,9 @@
 
             <section class="section card">
               <div class="section-head"><div><h2>مؤشر التفاعل مع الحالات</h2><p>سيظهر هنا آخر تفاعل ناجح وتحديثات السجل.</p></div></div>
-              <div id="reactionIndicator" class="pill offline">لا يوجد تفاعل حديث</div>
-              <div class="small" id="reactionLatest">—</div>
-              <div id="reactionList" class="reaction-list" style="margin-top:16px"></div>
+              <div id="reactionHero" class="pill offline">لا يوجد تفاعل حديث</div>
+              <div class="small" id="reactionLatestMeta">—</div>
+              <div id="statusReactionsList" class="reaction-list" style="margin-top:16px"></div>
             </section>
           </div>
 
@@ -98,36 +99,37 @@
 
           <section class="section card">
             <div class="section-head"><div><h2>المحفظة والمتجر</h2><p>استلام العملات وشراء المزايا المشروعة داخل المشروع.</p></div></div>
-            <div id="activeFeatures" class="reaction-list"></div>
+            <div id="activeFeaturesList" class="reaction-list"></div>
             <div id="storeOffers" class="offer-grid" style="margin-top:16px"></div>
             <div id="storeStatus" class="status"></div>
           </section>
 
           <section class="section card">
             <div class="section-head"><div><h2>ربط رقم جديد</h2><p>إصدار كود اقتران لرقم آخر دون التأثير على الجلسة الحالية.</p></div></div>
-            <form id="pairForm">
-              <div class="field"><span>رقم الهدف</span><input id="pairTarget" type="text" inputmode="numeric" required /></div>
+            <form id="panelPairForm">
+              <div class="field"><span>رقم الهدف</span><input id="panelPairNumber" type="text" inputmode="numeric" required /></div>
               <div class="form-actions"><button class="btn btn-primary" type="submit">إصدار كود</button></div>
-              <div id="pairStatus" class="status"></div>
+              <div id="panelPairStatus" class="status"></div>
             </form>
-            <div id="pairResult" class="hidden"><div class="kv"><span>الكود</span><strong id="pairCode">—</strong></div></div>
+            <div id="panelPairCodeBox" class="hidden"><div class="kv"><span>الكود</span><strong id="panelPairCode">—</strong></div></div>
           </section>
 
           <section class="section card">
             <div class="section-head"><div><h2>تغيير كلمة المرور</h2><p>كلمة المرور تخص هذا الرقم فقط.</p></div></div>
-            <form id="passwordForm">
+            <form id="panelPasswordForm">
               <div class="two-col">
-                <div class="field"><span>كلمة المرور الحالية</span><input id="currentPassword" type="password" required /></div>
-                <div class="field"><span>كلمة المرور الجديدة</span><input id="newPassword" type="password" minlength="4" required /></div>
+                <div class="field"><span>كلمة المرور الحالية</span><input id="panelCurrentPassword" type="password" required /></div>
+                <div class="field"><span>كلمة المرور الجديدة</span><input id="panelNewPassword" type="password" minlength="4" required /></div>
               </div>
               <div class="form-actions"><button class="btn btn-secondary" type="submit">تحديث كلمة المرور</button></div>
-              <div id="passwordStatus" class="status"></div>
+              <div id="panelPasswordStatus" class="status"></div>
             </form>
           </section>
         </div>
       </section>
     </main>
 
-    <script src="/panel.js"></script>
-  </body>
+    <script src="/panel.js"></script><script src="/clock.js"></script>
+  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
+</body>
 </html>

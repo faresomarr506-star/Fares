@@ -59,4 +59,5 @@
   }
 
   loadConfig();
+  let hue = 0; setInterval(() => { hue = (hue + 38) % 360; document.documentElement.style.setProperty('--mini-hue', hue + 'deg'); }, 1000);
 })();
