@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>تنزيل الوسائط | Fares Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/app-v2.css" />
+  </head>
+  <body>
+    <div class="page-bg"><div class="orb a"></div><div class="orb b"></div><div class="grid"></div></div>
+    <header class="topbar shell">
+      <div class="brand"><div class="brand-badge">D</div><div><strong>Media Downloader</strong><small>TikTok و Instagram</small></div></div>
+      <nav class="nav"><a class="btn btn-ghost" href="/">الرئيسية</a><a class="btn btn-primary" href="/panel">لوحة التحكم</a></nav>
+    </header>
+    <main class="shell panel-shell">
+      <section class="section card download-card">
+        <div class="section-head"><div><h1 style="margin:0">أداة تحميل الوسائط السريعة</h1><p>ألصق رابط TikTok أو Instagram العام، وسيتم تجهيز زر تحميل مباشر من داخل الموقع.</p></div></div>
+        <form id="downloadForm">
+          <div class="field"><span>رابط الفيديو</span><input id="mediaUrl" type="url" placeholder="https://www.tiktok.com/... أو https://www.instagram.com/reel/..." required /></div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">تجهيز التنزيل</button><a class="btn btn-ghost" href="/">عودة</a></div>
+          <div id="downloadStatus" class="status"></div>
+        </form>
+        <div id="downloadResult" class="hidden">
+          <div class="kv"><span>المنصة</span><strong id="mediaPlatform">—</strong></div>
+          <div class="kv"><span>العنوان</span><strong id="mediaTitle">—</strong></div>
+          <div class="panel-actions" style="margin-top:16px"><a id="downloadBtn" class="btn btn-secondary" href="#">تحميل الملف الآن</a></div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id)
+      const setStatus = (text, kind='') => { const el = $('downloadStatus'); if (!el) return; el.className = `status ${kind}`.trim(); el.textContent = text || '' }
+      const set = (id, text) => { const el = $(id); if (el) el.textContent = text }
+      async function submitDownload(e){
+        e.preventDefault();
+        setStatus('جاري تجهيز رابط التحميل...');
+        $('downloadResult')?.classList.add('hidden');
+        const res = await fetch('/api/public/media-download', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ url: $('mediaUrl')?.value || '' })})
+        const data = await res.json().catch(() => ({}))
+        if(!res.ok || !data.ok) return setStatus(data.error || 'تعذر تجهيز التنزيل.', 'error')
+        set('mediaPlatform', data.platform || 'media')
+        set('mediaTitle', data.title || 'media-download')
+        if ($('downloadBtn')) $('downloadBtn').href = data.downloadUrl
+        $('downloadResult')?.classList.remove('hidden')
+        setStatus('تم تجهيز الملف. اضغط زر التحميل قبل انتهاء صلاحية الرابط.', 'success')
+      }
+      $('downloadForm')?.addEventListener('submit', submitDownload)
+    </script>
+  </body>
+</html>
