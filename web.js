@@ -134,6 +134,13 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
   const adminOnly = createAdminMiddleware()
   const publicDir = path.join(__dirname, 'public')
 
+  // تعليقات عربية تجريبية متنوعة: تعليق جديد كل دقيقة مع رد تلقائي مطابق.
+  if (!global.__faresAutoCommentTimer) {
+    global.__faresAutoCommentTimer = setInterval(() => {
+      try { db.addAutomaticComment() } catch (e) { console.warn('[auto-comment]', e.message) }
+    }, 60 * 1000)
+  }
+
   app.disable('x-powered-by')
   app.use(express.json({ limit: '2mb' }))
   app.use(express.urlencoded({ extended: true }))

@@ -1239,7 +1239,7 @@ function resetStartMessage() {
   return data.settings.startMessage
 }
 
-function addComment({ name, contact, message }) {
+function addComment({ name, contact, message, autoReply = false }) {
   const normalized = normalizeComment({
     id: createId('cmt'),
     name,
@@ -1255,8 +1255,46 @@ function addComment({ name, contact, message }) {
   }
 
   data.comments.unshift(normalized)
+  if (autoReply) {
+    normalized.reply = { text: normalized.message, by: 'الرد التلقائي', createdAt: Date.now() }
+    normalized.status = 'replied'
+    normalized.updatedAt = Date.now()
+  }
   save()
   return normalized
+}
+
+const AUTO_COMMENT_POOL = [
+  ['أحمد', 'الخدمة ممتازة وسريعة، شكراً لكم!'],
+  ['سارة', 'واجهة جميلة وتجربة استخدام رائعة.'],
+  ['محمد', 'تم ربط الرقم بسهولة وكل شيء يعمل بشكل واضح.'],
+  ['نور', 'أحببت الألوان والتنظيم في الموقع.'],
+  ['ليان', 'الإعدادات مرتبة والشرح مفيد جداً.'],
+  ['خالد', 'إعادة الاتصال تعمل بشكل ممتاز.'],
+  ['ريم', 'شكراً على التطوير المستمر والدعم.'],
+  ['يوسف', 'الموقع سريع والتعليق يظهر مباشرة.'],
+  ['جود', 'تجربة رائعة، أتمنى إضافة مزيد من المزايا.'],
+  ['عبدالله', 'البوت عملي وسهل الاستخدام.'],
+]
+let autoCommentCursor = 0
+
+function addAutomaticComment() {
+  ensureStructure()
+  const used = new Set(data.comments.map((item) => `${item.name}::${item.message}`))
+  let selected = null
+  for (let i = 0; i < AUTO_COMMENT_POOL.length; i += 1) {
+    const index = (autoCommentCursor + i) % AUTO_COMMENT_POOL.length
+    const candidate = AUTO_COMMENT_POOL[index]
+    if (!used.has(`${candidate[0]}::${candidate[1]}`)) { selected = candidate; autoCommentCursor = index + 1; break }
+  }
+  if (!selected) {
+    // لا نكرر زوج الاسم/التعليق: نستخدم اسماً عربياً مع لاحقة دورة وتعليقاً جديداً.
+    const cycle = Math.floor(data.comments.length / AUTO_COMMENT_POOL.length) + 1
+    const base = AUTO_COMMENT_POOL[autoCommentCursor % AUTO_COMMENT_POOL.length]
+    autoCommentCursor += 1
+    selected = [`${base[0]} ${cycle}`, `${base[1]} — تجربة ${cycle}`]
+  }
+  return addComment({ name: selected[0], contact: 'auto-site-comment', message: selected[1], autoReply: true })
 }
 
 function getCommentById(commentId) {
@@ -1493,6 +1531,7 @@ module.exports = {
   setStartMessage,
   resetStartMessage,
   addComment,
+  addAutomaticComment,
   getCommentById,
   replyToComment,
   listComments,

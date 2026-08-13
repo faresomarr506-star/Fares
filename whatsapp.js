@@ -252,6 +252,10 @@ function getBrowserProfile() {
   return ['Windows', 'Chrome', '122.0.0.0']
 }
 
+function getDisconnectStatusCode(error) {
+  return Number(error?.output?.statusCode || error?.data?.statusCode || error?.statusCode || 0) || undefined
+}
+
 function getReconnectDelay(statusCode) {
   if (statusCode === DisconnectReason.restartRequired) return 800
   if (statusCode === DisconnectReason.connectionClosed) return 1200
@@ -2369,7 +2373,7 @@ class WaSession {
   async onConnectionUpdate(update, sourceSock, generation) {
     if (sourceSock && (this.sock !== sourceSock || generation !== this.socketGeneration)) return
     const { connection, lastDisconnect } = update || {}
-    const statusCode = lastDisconnect?.error?.output?.statusCode
+    const statusCode = getDisconnectStatusCode(lastDisconnect?.error)
     const registered = !!this.state?.creds?.registered
 
     if (connection === 'connecting') {
@@ -2494,6 +2498,8 @@ class WaSession {
       this.stopKeepAlive()
       this.stopHealthCheck()
 
+      // 401/440 تعني أن الجلسة غير صالحة أو استُبدلت؛ لا نمسحها إلا عند loggedOut
+      // restartRequired/connectionLost/timedOut/connectionClosed تعاد محاولتها تلقائياً.
       if (statusCode === DisconnectReason.loggedOut) {
         if (this.suppressLoggedOutCleanup) {
           this.suppressLoggedOutCleanup = false
