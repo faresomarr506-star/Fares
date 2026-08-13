@@ -3,133 +3,214 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>لوحة التحكم | Fares Bot</title>
+    <title>إعدادات الرقم | Fares Bot</title>
+    <meta name="description" content="لوحة إعدادات الرقم المربوط داخل Fares Bot مع جميع الإعدادات الكاملة وتطبيقها مباشرة على الرقم المربوط." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/app-v2.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <div class="page-bg"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div><div class="grid"></div></div>
-    <header class="topbar shell">
-      <div class="brand"><div class="brand-badge">P</div><div><strong>لوحة تحكم الرقم</strong><small>إدارة الحماية، الردود الذكية، سجل التفاعل، وربط الأرقام</small></div></div>
-      <nav class="nav"><a class="btn btn-ghost" href="/">الرئيسية</a><a class="btn btn-secondary" href="/downloader">تنزيل الوسائط</a></nav>
+  <body class="panel-body">
+    <div class="aurora-bg">
+      <div class="aurora aurora-1"></div>
+      <div class="aurora aurora-2"></div>
+      <div class="aurora aurora-3"></div>
+      <div class="aurora aurora-4"></div>
+    </div>
+    <div class="bg-grid"></div>
+    <div class="bg-dots"></div>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+
+    <header class="topbar shell panel-topbar">
+      <div class="brand">
+        <div class="brand-avatar-wrap">
+          <div class="brand-glow"></div>
+          <img class="brand-avatar" src="/hero-image.jpg" alt="Fares Bot" />
+        </div>
+        <div class="brand-text">
+          <strong>إعدادات الرقم المربوط</strong>
+          <p>بنفس الترتيب العصري وبجميع الإعدادات التي تُطبَّق مباشرة على الرقم المربوط</p>
+        </div>
+      </div>
+      <nav class="top-actions">
+        <a class="btn btn-soft" href="/bot"><span class="btn-icon">🏠</span><span>موقع البوت</span></a>
+        <a class="btn btn-secondary" href="/downloader"><span class="btn-icon">⬇️</span><span>تنزيل الوسائط</span></a>
+      </nav>
     </header>
 
-    <div class="fares-clock-widget" aria-label="الساعة والتاريخ"><div class="analog-clock"><span class="clock-number n12">12</span><span class="clock-number n3">3</span><span class="clock-number n6">6</span><span class="clock-number n9">9</span><i class="hand hand-hour"></i><i class="hand hand-minute"></i><i class="hand hand-second"></i><b class="clock-center"></b></div><div><strong id="panelClockTime">00:00:00</strong><small id="panelClockDate">جاري تحميل التاريخ...</small></div></div>
-    <main class="shell panel-shell">
-      <section id="panelLoginCard" class="section card login-card">
-        <div class="section-head"><div><h1 style="margin:0">تسجيل دخول الرقم المربوط</h1><p>أدخل الرقم المربوط وكلمة المرور لفتح لوحة التحكم الكاملة.</p></div></div>
-        <form id="panelLoginForm">
-          <div class="field"><span>الرقم المربوط</span><input id="panelNumberInput" type="text" inputmode="numeric" required /></div>
-          <div class="field"><span>كلمة المرور</span><input id="panelPasswordInput" type="password" required /><div id="panelPasswordHint" class="small"></div></div>
-          <div class="form-actions"><button class="btn btn-primary" type="submit">دخول</button></div>
-          <div id="panelLoginStatus" class="status"></div>
+    <main class="shell panel-layout panel-layout-extended">
+      <section id="panelLoginCard" class="card panel-login-card">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow"><span class="dot"></span>دخول لوحة الإعدادات</span>
+            <h2>تسجيل دخول الرقم المربوط</h2>
+            <p>أدخل الرقم المربوط وكلمة المرور لفتح لوحة الإعدادات الكاملة الخاصة بهذا الرقم فقط.</p>
+          </div>
+        </div>
+
+        <form id="panelLoginForm" class="comment-form single-col" autocomplete="off">
+          <label class="full">
+            <span>الرقم المربوط</span>
+            <input id="panelNumberInput" type="text" inputmode="numeric" placeholder="مثال: 9677XXXXXXX" required />
+          </label>
+          <label class="full">
+            <span>كلمة المرور</span>
+            <input id="panelPasswordInput" type="password" placeholder="كلمة المرور" required />
+          </label>
+          <div id="panelPasswordHint" class="small full"></div>
+          <div class="form-actions full">
+            <button class="btn btn-primary" type="submit"><span class="btn-icon">🔐</span><span>دخول</span></button>
+            <p id="panelLoginStatus" class="form-status"></p>
+          </div>
         </form>
+
+        <div class="panel-login-help">
+          <strong>ملاحظة مهمة</strong>
+          <p>
+            بعد تسجيل الدخول ستظهر لك كل إعدادات الرقم: المعلومات الأساسية، الأتمتة، الردود الذكية، الحماية،
+            المحفظة، سجل التفاعل، وربط رقم جديد. كل تعديل تحفظه من هنا يُرسل مباشرة إلى الرقم المربوط.
+          </p>
+        </div>
       </section>
 
       <section id="panelMain" class="hidden">
-        <div class="dashboard-top">
+        <section class="card panel-header">
+          <div class="section-head main-head" style="margin-bottom:0; padding:0;">
+            <div>
+              <span class="eyebrow"><span class="dot"></span>لوحة إدارة الرقم</span>
+              <h2>الرقم <span id="panelHeaderNumber"></span></h2>
+              <p>
+                الحالة: <span id="panelStatusLabel">—</span>
+                <span style="padding-inline:8px">•</span>
+                إيموجي الحالة: <span id="panelEmojiLabel">❤️</span>
+              </p>
+            </div>
+            <div class="top-actions">
+              <span id="panelTierBadge" class="tier-badge">STANDARD</span>
+            </div>
+          </div>
+          <div id="panelSaveStatus" class="form-status" style="margin-top:14px"></div>
+        </section>
+
+        <section class="wallet-grid" id="panelWalletSection">
+          <article class="card wallet-card">
+            <span class="updated-tag">الرصيد الحالي</span>
+            <div class="wallet-balance"><strong id="walletBalance">0</strong><span>عملة</span></div>
+            <div class="small">يمكنك استلام مكافأتك اليومية أو الشراء من المتجر الداخلي.</div>
+            <div class="form-actions" style="margin-top:14px">
+              <button id="claimDailyBtn" class="btn btn-primary" type="button">طلب المكافأة اليومية</button>
+              <div id="walletStatus" class="form-status"></div>
+            </div>
+          </article>
+
+          <article class="card wallet-card">
+            <span class="updated-tag">ملخص المحفظة</span>
+            <div class="wallet-tx dir-plus"><div><strong>إجمالي المستلم</strong><small>كل ما تم استلامه لهذا الرقم</small></div><strong id="walletClaimed">0</strong></div>
+            <div class="wallet-tx dir-minus"><div><strong>إجمالي المصروف</strong><small>كل ما صُرف داخل المتجر</small></div><strong id="walletSpent">0</strong></div>
+            <div class="wallet-tx"><div><strong>الاستلام القادم</strong><small>موعد المطالبة التالية</small></div><strong id="walletNextClaim">—</strong></div>
+          </article>
+        </section>
+
+        <section class="card status-visibility-card" id="panelReactionSection">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow"><span class="dot"></span>التفاعل مع الحالات</span>
+              <h2>سجل ومؤشر التفاعل</h2>
+              <p>هنا يظهر آخر تفاعل ناجح ومؤشر الأرقام التي تم التفاعل مع حالاتها بواسطة الرقم المربوط.</p>
+            </div>
+          </div>
+          <div id="reactionHero" class="status-pill">لا يوجد تفاعل حديث</div>
+          <div class="small" id="reactionLatestMeta" style="margin-top:10px">—</div>
+          <div id="statusReactionsList" class="reaction-count-card empty-state" style="margin-top:16px">جاري تحميل سجل التفاعل...</div>
+        </section>
+
+        <section class="card coin-store-card" id="panelStoreSection">
+          <div class="section-head compact">
+            <div>
+              <span class="eyebrow"><span class="dot"></span>المزايا والمتجر</span>
+              <h2>المحفظة والمزايا النشطة</h2>
+              <p>المزايا المفعلة حالياً لهذا الرقم والعناصر التي يمكن شراؤها من المتجر.</p>
+            </div>
+          </div>
+          <div id="activeFeaturesList" class="feature-badges"></div>
+          <div id="storeOffers" class="store-grid" style="margin-top:16px"></div>
+          <div id="storeStatus" class="form-status" style="margin-top:10px"></div>
+        </section>
+
+        <section class="dashboard-two-col">
+          <article class="card panel-pair-card" id="panelPairSection">
+            <div class="section-head compact">
+              <div>
+                <span class="eyebrow"><span class="dot"></span>ربط رقم جديد</span>
+                <h2>إصدار كود اقتران</h2>
+                <p>أدخل رقماً آخر لإصدار كود اقتران جديد بدون التأثير على الجلسة الحالية.</p>
+              </div>
+            </div>
+            <form id="panelPairForm" class="comment-form single-col" autocomplete="off">
+              <label class="full">
+                <span>رقم الهدف</span>
+                <input id="panelPairNumber" type="text" inputmode="numeric" placeholder="مثال: 9677XXXXXXX" required />
+              </label>
+              <div class="form-actions full">
+                <button class="btn btn-primary" type="submit"><span class="btn-icon">🔗</span><span>إصدار الكود</span></button>
+                <p id="panelPairStatus" class="form-status"></p>
+              </div>
+            </form>
+            <div id="panelPairCodeBox" class="hidden mini-note-box">
+              <strong>كود الاقتران</strong>
+              <div class="wallet-balance" style="margin:8px 0 0"><strong id="panelPairCode">—</strong><span>جاهز للنسخ</span></div>
+            </div>
+          </article>
+
+          <article class="card panel-password-card" id="panelSecuritySection">
+            <div class="section-head compact">
+              <div>
+                <span class="eyebrow"><span class="dot"></span>الأمان</span>
+                <h2>تغيير كلمة المرور</h2>
+                <p>كلمة المرور هنا تخص هذا الرقم فقط، ولن تؤثر على أي رقم آخر مربوط داخل المشروع.</p>
+              </div>
+            </div>
+            <form id="panelPasswordForm" class="comment-form single-col" autocomplete="off">
+              <label class="full">
+                <span>كلمة المرور الحالية</span>
+                <input id="panelCurrentPassword" type="password" required />
+              </label>
+              <label class="full">
+                <span>كلمة المرور الجديدة</span>
+                <input id="panelNewPassword" type="password" minlength="4" required />
+              </label>
+              <div class="form-actions full">
+                <button class="btn btn-secondary" type="submit"><span class="btn-icon">🛡️</span><span>تحديث كلمة المرور</span></button>
+                <p id="panelPasswordStatus" class="form-status"></p>
+              </div>
+            </form>
+          </article>
+        </section>
+
+        <section class="section-shell" id="panelSettingsSection">
+          <div class="section-head main-head" style="padding:0 6px 0 0; margin-bottom:0;">
+            <div>
+              <span class="eyebrow"><span class="dot"></span>الإعدادات الكاملة</span>
+              <h2>إعدادات الرقم بنفس الترتيب العصري</h2>
+              <p>كل الأقسام الكاملة للرقم المربوط: المعلومات، الأتمتة، الردود، الحماية، الشعارات، المكالمات، والجدولة.</p>
+            </div>
+            <small class="head-sub">أي تعديل تحفظه من هنا يتم تطبيقه مباشرة داخل الرقم المربوط</small>
+          </div>
+          <div id="panelSettingsGrid" class="panel-settings"></div>
+        </section>
+
+        <div class="panel-save-bar">
           <div>
-            <h1 style="margin:0 0 8px">لوحة الرقم <span id="panelHeaderNumber"></span></h1>
-            <div class="small">الحالة: <span id="panelStatusLabel">—</span> · إيموجي الحالة: <span id="panelEmojiLabel">❤️</span></div>
+            <button id="panelSaveBtn" class="btn btn-primary" type="button"><span class="btn-icon">💾</span><span>حفظ الإعدادات</span></button>
+            <button id="panelReloadBtn" class="btn btn-soft" type="button"><span class="btn-icon">🔄</span><span>تحديث</span></button>
+            <button id="panelLogoutBtn" class="btn btn-outline" type="button"><span class="btn-icon">🚪</span><span>خروج</span></button>
           </div>
-          <div class="panel-actions">
-            <span id="panelTierBadge" class="pill">STANDARD</span>
-            <button id="panelSaveBtn" class="btn btn-primary" type="button">حفظ الإعدادات</button>
-            <button id="panelReloadBtn" class="btn btn-ghost" type="button">تحديث</button>
-            <button id="panelLogoutBtn" class="btn btn-danger" type="button">خروج</button>
-          </div>
-        </div>
-        <div id="panelSaveStatus" class="status"></div>
-
-        <div class="dashboard-grid">
-          <div class="quick-card card"><span class="small">الرصيد الحالي</span><h3 id="walletBalance">0</h3></div>
-          <div class="quick-card card"><span class="small">إجمالي المستلم</span><h3 id="walletClaimed">0</h3></div>
-          <div class="quick-card card"><span class="small">إجمالي المصروف</span><h3 id="walletSpent">0</h3></div>
-          <div class="quick-card card"><span class="small">الاستلام القادم</span><h3 id="walletNextClaim">—</h3></div>
-        </div>
-
-        <div class="sections">
-          <section class="section card">
-            <div class="section-head"><div><h2>الحماية السريعة</h2><p>التحكم المباشر في الروابط، السبام، الحذف، ومشاهدة/تفاعل الحالات.</p></div><button id="claimDailyBtn" class="btn btn-secondary" type="button">طلب المكافأة اليومية</button></div>
-            <div class="toggles">
-              <div class="toggle"><strong>منع الروابط</strong><select data-setting="antiLink"><option>on</option><option>off</option></select></div>
-              <div class="toggle"><strong>منع السبام</strong><select data-setting="antiSpam"><option>on</option><option>off</option></select></div>
-              <div class="toggle"><strong>منع حذف الرسائل</strong><select data-setting="antiDelete"><option>on</option><option>off</option></select></div>
-              <div class="toggle"><strong>منع حذف الرسائل الخاصة</strong><select data-setting="antiDeleteMessages"><option>on</option><option>off</option></select></div>
-              <div class="toggle"><strong>مشاهدة الحالة تلقائياً</strong><select data-setting="autoStatusRead"><option>on</option><option>off</option></select></div>
-              <div class="toggle"><strong>التفاعل مع الحالة تلقائياً</strong><select data-setting="autoStatusReact"><option>on</option><option>off</option></select></div>
-            </div>
-            <div id="walletStatus" class="status"></div>
-          </section>
-
-          <div class="reaction-grid two-col">
-            <section class="section card">
-              <div class="section-head"><div><h2>الردود الذكية</h2><p>تحديد النطاق وإضافة الردود حسب الكلمات المفتاحية.</p></div></div>
-              <div class="settings-grid" style="grid-template-columns:repeat(2,1fr)">
-                <div class="field"><span>نطاق الرد الذكي</span><select data-setting="aiReplyScope"><option>inbox</option><option>groups</option><option>both</option></select></div>
-                <div class="field"><span>نطاق التفاعل التلقائي</span><select data-setting="autoReactScope"><option>inbox</option><option>groups</option><option>both</option></select></div>
-              </div>
-              <div class="field"><span>الردود المخصصة</span><textarea data-setting="customAutoReplies" placeholder="مرحبا:أهلاً بك&#10;سعر:راجع المطور"></textarea></div>
-            </section>
-
-            <section class="section card">
-              <div class="section-head"><div><h2>مؤشر التفاعل مع الحالات</h2><p>سيظهر هنا آخر تفاعل ناجح وتحديثات السجل.</p></div></div>
-              <div id="reactionHero" class="pill offline">لا يوجد تفاعل حديث</div>
-              <div class="small" id="reactionLatestMeta">—</div>
-              <div id="statusReactionsList" class="reaction-list" style="margin-top:16px"></div>
-            </section>
-          </div>
-
-          <section class="section card">
-            <div class="section-head"><div><h2>الإعدادات العامة</h2><p>الاسم، البادئة، الإيموجي، كلمات الحظر، والخيارات الأساسية.</p></div></div>
-            <div class="settings-grid">
-              <div class="field"><span>اسم البوت</span><input data-setting="name" /></div>
-              <div class="field"><span>اسم المالك</span><input data-setting="ownername" /></div>
-              <div class="field"><span>رقم المالك</span><input data-setting="ownerNumber" /></div>
-              <div class="field"><span>البادئة</span><input data-setting="prefix" /></div>
-              <div class="field"><span>الوضع</span><select data-setting="mode"><option>private</option><option>public</option><option>group</option><option>inbox</option><option>self</option></select></div>
-              <div class="field"><span>إيموجي تفاعل الحالة</span><input data-setting="statusCustomReact" placeholder="❤️,🔥,👍" /></div>
-              <div class="field"><span>الروابط المحظورة</span><input data-setting="antiLinkList" /></div>
-              <div class="field"><span>الكلمات الممنوعة</span><input data-setting="antiBadWords" /></div>
-              <div class="field"><span>رسالة Alive</span><input data-setting="aliveMsg" /></div>
-            </div>
-          </section>
-
-          <section class="section card">
-            <div class="section-head"><div><h2>المحفظة والمتجر</h2><p>استلام العملات وشراء المزايا المشروعة داخل المشروع.</p></div></div>
-            <div id="activeFeaturesList" class="reaction-list"></div>
-            <div id="storeOffers" class="offer-grid" style="margin-top:16px"></div>
-            <div id="storeStatus" class="status"></div>
-          </section>
-
-          <section class="section card">
-            <div class="section-head"><div><h2>ربط رقم جديد</h2><p>إصدار كود اقتران لرقم آخر دون التأثير على الجلسة الحالية.</p></div></div>
-            <form id="panelPairForm">
-              <div class="field"><span>رقم الهدف</span><input id="panelPairNumber" type="text" inputmode="numeric" required /></div>
-              <div class="form-actions"><button class="btn btn-primary" type="submit">إصدار كود</button></div>
-              <div id="panelPairStatus" class="status"></div>
-            </form>
-            <div id="panelPairCodeBox" class="hidden"><div class="kv"><span>الكود</span><strong id="panelPairCode">—</strong></div></div>
-          </section>
-
-          <section class="section card">
-            <div class="section-head"><div><h2>تغيير كلمة المرور</h2><p>كلمة المرور تخص هذا الرقم فقط.</p></div></div>
-            <form id="panelPasswordForm">
-              <div class="two-col">
-                <div class="field"><span>كلمة المرور الحالية</span><input id="panelCurrentPassword" type="password" required /></div>
-                <div class="field"><span>كلمة المرور الجديدة</span><input id="panelNewPassword" type="password" minlength="4" required /></div>
-              </div>
-              <div class="form-actions"><button class="btn btn-secondary" type="submit">تحديث كلمة المرور</button></div>
-              <div id="panelPasswordStatus" class="status"></div>
-            </form>
-          </section>
+          <div id="panelStickyStatus" class="form-status">جاهز للحفظ</div>
         </div>
       </section>
     </main>
 
-    <script src="/panel.js"></script><script src="/clock.js"></script>
-  <script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
-</body>
+    <script src="/panel.js"></script>
+  </body>
 </html>
