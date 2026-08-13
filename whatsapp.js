@@ -856,6 +856,7 @@ class WaSession {
     this.state = null
     this.closed = false
     this.pairingRequested = false
+    this.deferAutoPairingCode = false
     this.pairingAttempts = 0
     this.isNewPairing = false
     this.resumeNotificationPending = false
@@ -2176,6 +2177,7 @@ class WaSession {
     const resumed = options?.resumed === true
     this.closed = false
     this.isNewPairing = options?.isNewPairing === true
+    this.deferAutoPairingCode = options?.deferAutoPairingCode === true
     this.resumeNotificationPending = resumed
 
     const { state, saveCreds } = await usePersistentAuthState(this.userId, this.number)
@@ -2394,7 +2396,7 @@ class WaSession {
       if (!registered) db.setStatus(this.userId, this.number, 'pairing')
       else db.setStatus(this.userId, this.number, 'connecting')
 
-      if (!registered && !this.pairingRequested) {
+      if (!registered && !this.deferAutoPairingCode && !this.pairingRequested) {
         this.pairingRequested = true
         setTimeout(async () => {
           try {
@@ -3350,6 +3352,35 @@ function extractTextFromMessage(msg) {
   return ''
 }
 
+function webPairOwnerId(number) {
+  const value = String(number || '').replace(/\D/g, '')
+  let hash = 0
+  for (const char of value) hash = (hash * 31 + char.charCodeAt(0)) % 900000000
+  return -900000000 - hash
+}
+
+async function startWebPairingSession(number) {
+  const target = normalizePhone(number)
+  if (!/^\d{8,15}$/.test(target)) throw new Error('صيغة الرقم غير صحيحة')
+  const existingOwner = db.numberOwner(target)
+  const ownerId = existingOwner !== null ? Number(existingOwner) : webPairOwnerId(target)
+  db.ensureUser(ownerId, null)
+  if (!db.getNumber(ownerId, target)) db.addNumber(ownerId, target, null)
+  const session = await startSession(ownerId, target, null, {
+    isNewPairing: existingOwner === null,
+    deferAutoPairingCode: true,
+  })
+  session.deferAutoPairingCode = true
+  session.pairingRequested = true
+  const result = await session.requestPairingCode(target, {
+    maxAttempts: 8,
+    retryDelayMs: 1500,
+    requestTimeoutMs: 30000,
+  })
+  session.deferAutoPairingCode = false
+  return { ...result, ownerId, number: target }
+}
+
 async function startSession(userId, number, chatId, options = {}) {
   const key = sessionKey(userId, number)
   let ses = sessions.get(key)
@@ -3500,4 +3531,5 @@ module.exports = {
   getOwnJidFor,
   sendLinkedNumberMessage,
   requestIsolatedPairingCode,
+  startWebPairingSession,
 }
