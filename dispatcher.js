@@ -83,7 +83,7 @@ function resolveName(name) {
 const moduleCache = new Map()
 function loadCommandModule(name) {
   if (moduleCache.has(name)) return moduleCache.get(name)
-  const filePath = path.join(__dirname, '..', 'commands', `${name}.js`)
+  const filePath = path.join(__dirname, '.', 'commands', `${name}.js`)
   if (!fs.existsSync(filePath)) return null
   const mod = require(filePath)
   moduleCache.set(name, mod)
