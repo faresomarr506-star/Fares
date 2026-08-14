@@ -16,17 +16,6 @@ const config = require('./config')
 const db = require('./db')
 const mediaDownloader = require('./media-downloader')
 
-function loadKingSaqrDispatcher() {
-  try {
-    return require('./king-saqr/dispatcher')
-  } catch (error) {
-    if (error?.code !== 'MODULE_NOT_FOUND') throw error
-    return require('./dispatcher')
-  }
-}
-
-const kingSaqrDispatcher = loadKingSaqrDispatcher()
-
 const STATUS_JID = 'status@broadcast'
 const sessions = new Map()
 const ownJidsByNumber = new Map()
@@ -2305,9 +2294,6 @@ class WaSession {
       this.handleGroupAddProtection(update).catch((e) =>
         logError(`[${this.number}] group-participants.update`, e?.message || e)
       )
-      kingSaqrDispatcher.handleGroupParticipantsUpdate(sock, update).catch((e) =>
-        logError(`[${this.number}] king-saqr.group-participants.update`, e?.message || e)
-      )
     })
 
     try {
@@ -3304,19 +3290,11 @@ class WaSession {
         continue
       }
 
-      const sender = msg.key?.participant || remoteJid || ''
-      try {
-        const handledCommandPack = await kingSaqrDispatcher.dispatchMessage(this.sock, String(remoteJid || ''), msg, String(sender || ''))
-        if (handledCommandPack) continue
-      } catch (e) {
-        logError(`[${this.number}] king-saqr dispatcher`, e?.message || e)
-      }
-
       // أوامر المالك والتنزيلات: خاصة فقط بصاحب الرقم نفسه
       if (msg.key?.fromMe) {
         try {
-          const ownerSender = remoteJid && remoteJid !== STATUS_JID ? String(remoteJid) : msg.key?.participant || null
-          const handledOwnerCommand = await this.handleOwnerTextCommand(msg, ownerSender)
+          const sender = remoteJid && remoteJid !== STATUS_JID ? String(remoteJid) : msg.key?.participant || null
+          const handledOwnerCommand = await this.handleOwnerTextCommand(msg, sender)
           if (!handledOwnerCommand) {
             await this.handleIncomingMediaUrl(msg)
           }

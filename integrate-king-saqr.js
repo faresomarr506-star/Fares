@@ -15,12 +15,7 @@ const path = require('path')
 let _dispatcher = null
 function getDispatcher() {
   if (!_dispatcher) {
-    try {
-      _dispatcher = require(path.join(__dirname, 'king-saqr', 'dispatcher.js'))
-    } catch (error) {
-      if (error?.code !== 'MODULE_NOT_FOUND') throw error
-      _dispatcher = require(path.join(__dirname, 'dispatcher.js'))
-    }
+    _dispatcher = require(path.join(__dirname, 'king-saqr', 'dispatcher.js'))
   }
   return _dispatcher
 }
