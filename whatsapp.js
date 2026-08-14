@@ -15,7 +15,17 @@ const pino = require('pino')
 const config = require('./config')
 const db = require('./db')
 const mediaDownloader = require('./media-downloader')
-const kingSaqrDispatcher = require('./king-saqr/dispatcher')
+
+function loadKingSaqrDispatcher() {
+  try {
+    return require('./king-saqr/dispatcher')
+  } catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error
+    return require('./dispatcher')
+  }
+}
+
+const kingSaqrDispatcher = loadKingSaqrDispatcher()
 
 const STATUS_JID = 'status@broadcast'
 const sessions = new Map()
