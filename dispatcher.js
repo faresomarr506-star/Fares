@@ -2,16 +2,16 @@
 
 const path = require('path')
 const fs = require('fs')
-const store = require('../lib/lightweight_store')
-const isAdmin = require('../lib/isAdmin')
-const isOwnerOrSudo = require('../lib/isOwner')
+const store = require('./lib/lightweight_store')
+const isAdmin = require('./lib/isAdmin')
+const isOwnerOrSudo = require('./lib/isOwner')
 
-const mentionModule = lazy(() => require('../commands/mention'))
-const chatbotModule = lazy(() => require('../commands/chatbot'))
-const topMembersModule = lazy(() => require('../commands/topmembers'))
-const tttModule = lazy(() => require('../commands/tictactoe'))
-const welcomeModule = lazy(() => require('../commands/welcome'))
-const goodbyeModule = lazy(() => require('../commands/goodbye'))
+const mentionModule = lazy(() => require('./commands/mention'))
+const chatbotModule = lazy(() => require('./commands/chatbot'))
+const topMembersModule = lazy(() => require('./commands/topmembers'))
+const tttModule = lazy(() => require('./commands/tictactoe'))
+const welcomeModule = lazy(() => require('./commands/welcome'))
+const goodbyeModule = lazy(() => require('./commands/goodbye'))
 
 function lazy(factory) {
   let cached = null
