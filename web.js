@@ -2,7 +2,6 @@ const express = require('express')
 const path = require('path')
 const fs = require('fs')
 const config = require('./config')
-const pairingService = require('./pair/server')
 const db = require('./db')
 const whatsapp = require('./whatsapp')
 const telegramAlerts = require('./telegram')
@@ -152,8 +151,6 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
     res.sendFile(path.join(publicDir, 'settings.html'))
   })
 
-  app.get('/pair', (req, res) => res.sendFile(path.join(__dirname, 'pair', 'index.html')))
-
   app.get('/health', (req, res) => {
     res.json({ ok: true, service: 'fares-bot-site' })
   })
@@ -233,7 +230,7 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
       const accepted = req.body?.accepted === true || String(req.body?.accepted || '') === 'true'
       if (!accepted) return res.status(400).json({ ok: false, error: 'يجب تأكيد أنك تستخدم رقماً مخصصاً للربط.' })
       if (!/^\d{8,15}$/.test(number)) return res.status(400).json({ ok: false, error: 'صيغة الرقم غير صحيحة.' })
-      const result = await pairingService.pairNumber(number)
+      const result = await whatsapp.requestIsolatedPairingCode(number)
       const rawCode = String(result?.code || '').replace(/[^A-Za-z0-9]/g, '')
       const code = result?.formatted || rawCode.replace(/(.{4})/g, '$1-').replace(/-$/, '')
       res.json({
@@ -394,7 +391,7 @@ function startWebServer({ getRuntimeStats, monitor: monitorMod = monitor }) {
     try {
       const target = String(req.body?.number || '').replace(/\D/g, '')
       if (!/^\d{8,15}$/.test(target)) return res.status(400).json({ ok: false, error: 'صيغة الرقم الهدف غير صحيحة.' })
-      const result = await pairingService.pairNumber(target)
+      const result = await whatsapp.requestIsolatedPairingCode(target)
       res.json({ ok: true, code: result?.formatted || result?.code || '' , rawCode: result?.code || '' })
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message || 'تعذر إصدار كود الاقتران.' })

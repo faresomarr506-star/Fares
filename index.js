@@ -758,16 +758,16 @@ async function gracefulShutdown(signal) {
 }
 
 async function main() {
+  if (!config.TELEGRAM_TOKEN) {
+    console.error('❌ TELEGRAM_TOKEN غير موجود!')
+    console.error('انسخ ملف .env.example إلى .env وضع فيه توكن البوت من @BotFather')
+    process.exit(1)
+  }
+
   await db.load()
 
-  // تشغيل الموقع والربط الخارجي لا يتطلب توكن تيليجرام.
-  // إذا توفر التوكن تعمل واجهة تيليجرام أيضاً، وإلا يعمل المشروع كوضع واتساب/ويب فقط.
-  if (config.TELEGRAM_TOKEN) {
-    bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true })
-    registerTelegramHandlers()
-  } else {
-    console.log('ℹ️ TELEGRAM_TOKEN غير موجود — تشغيل وضع الموقع وربط واتساب فقط')
-  }
+  bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true })
+  registerTelegramHandlers()
 
   web.startWebServer({ getRuntimeStats, monitor })
   await whatsapp.resumeAll()
